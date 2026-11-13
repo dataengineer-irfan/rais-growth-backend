@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: rais-growth-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.5
+      - key: USE_MOCK_GBP
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TOKEN_ENCRYPTION_KEY
+        value: 4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0

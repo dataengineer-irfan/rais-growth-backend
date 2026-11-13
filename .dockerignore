@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+tests
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+backups*
