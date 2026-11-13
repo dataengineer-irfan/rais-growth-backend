@@ -47,6 +47,18 @@ app.include_router(seo_router, prefix=settings.API_V1_STR)
 app.include_router(leads_router, prefix=settings.API_V1_STR)
 app.include_router(automation_router, prefix=settings.API_V1_STR)
 
+@app.get("/", tags=["Root"])
+async def root():
+    return {
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "status": "ONLINE",
+        "docs_url": "/docs",
+        "health_check": "/api/health",
+        "google_status": f"{settings.API_V1_STR}/google/status",
+        "verified_location": "Rayachoty, Annamayya District, Andhra Pradesh"
+    }
+
 @app.get("/api/health", tags=["Health"])
 async def health_check():
     return {
