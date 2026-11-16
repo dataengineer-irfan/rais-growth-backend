@@ -38,6 +38,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 # API Routers
 app.include_router(business_info_router, prefix=settings.API_V1_STR)
 app.include_router(campaigns_router, prefix=settings.API_V1_STR)
@@ -46,18 +50,6 @@ app.include_router(google_router, prefix=settings.API_V1_STR)
 app.include_router(seo_router, prefix=settings.API_V1_STR)
 app.include_router(leads_router, prefix=settings.API_V1_STR)
 app.include_router(automation_router, prefix=settings.API_V1_STR)
-
-@app.get("/", tags=["Root"])
-async def root():
-    return {
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "status": "ONLINE",
-        "docs_url": "/docs",
-        "health_check": "/api/health",
-        "google_status": f"{settings.API_V1_STR}/google/status",
-        "verified_location": "Rayachoty, Annamayya District, Andhra Pradesh"
-    }
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
@@ -68,6 +60,48 @@ async def health_check():
         "mode": "DEVELOPMENT_MOCK_GBP" if settings.USE_MOCK_GBP else "PRODUCTION_LIVE_GBP",
         "verified_location": "Rayachoty, Annamayya District, AP"
     }
+
+# Static Frontend SPA Serving (Render Production Client Access)
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.exists(static_dir):
+    assets_dir = os.path.join(static_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/", tags=["Dashboard SPA"], include_in_schema=False)
+    async def serve_dashboard_root():
+        index_file = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {
+            "service": settings.PROJECT_NAME,
+            "version": settings.VERSION,
+            "status": "ONLINE"
+        }
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_dashboard_spa(full_path: str):
+        if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+        file_path = os.path.join(static_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index_file = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+else:
+    @app.get("/", tags=["Root"])
+    async def root():
+        return {
+            "service": settings.PROJECT_NAME,
+            "version": settings.VERSION,
+            "status": "ONLINE",
+            "docs_url": "/docs",
+            "health_check": "/api/health",
+            "google_status": f"{settings.API_V1_STR}/google/status",
+            "verified_location": "Rayachoty, Annamayya District, Andhra Pradesh"
+        }
 
 if __name__ == "__main__":
     import uvicorn
