@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # AES Key for encrypting OAuth tokens at rest (32 bytes hex)
     TOKEN_ENCRYPTION_KEY: str = "4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0"
     
+    # Frontend Redirect Destination
+    FRONTEND_URL: str = "https://dataengineer-irfan.github.io/RAIS-AGENCIES"
+    
     # Google Business Profile API Settings
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

@@ -33,18 +33,20 @@ async def oauth_callback(
     OAuth 2.0 redirect callback endpoint.
     Validates CSRF state, exchanges authorization code for tokens, and securely persists credentials.
     """
+    frontend_url = getattr(settings, "FRONTEND_URL", "https://dataengineer-irfan.github.io/RAIS-AGENCIES").rstrip("/")
+    
     # 1. Handle Google-side authorization errors (e.g., user clicked cancel)
     if error:
         err_msg = error_description or error or "Google authorization was cancelled or denied."
         return RedirectResponse(
-            url=f"http://localhost:5173/?google_auth=error&error_description={urllib.parse.quote(err_msg)}",
+            url=f"{frontend_url}/?google_auth=error&error_description={urllib.parse.quote(err_msg)}",
             status_code=302
         )
 
     # 2. Validate mandatory parameters
     if not code or not state:
         return RedirectResponse(
-            url="http://localhost:5173/?google_auth=error&error_description=Missing+required+code+or+state+parameter",
+            url=f"{frontend_url}/?google_auth=error&error_description=Missing+required+code+or+state+parameter",
             status_code=302
         )
 
@@ -52,12 +54,12 @@ async def oauth_callback(
     try:
         await gbp_service.process_oauth_callback(db=db, code=code, state=state)
         return RedirectResponse(
-            url="http://localhost:5173/?google_auth=success",
+            url=f"{frontend_url}/?google_auth=success",
             status_code=302
         )
     except ValueError as e:
         return RedirectResponse(
-            url=f"http://localhost:5173/?google_auth=error&error_description={urllib.parse.quote(str(e))}",
+            url=f"{frontend_url}/?google_auth=error&error_description={urllib.parse.quote(str(e))}",
             status_code=302
         )
 
