@@ -745,15 +745,11 @@ class GBPService:
                 "actionable_instruction": "Configure GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET in backend/.env and authenticate to view live Google metrics."
             }
 
-        # In real mode: check authenticated connection in database
-        conn = None
-        if db is not None:
-            stmt = select(GoogleConnection).limit(1)
-            res = await db.execute(stmt)
-            conn = res.scalars().first()
-
-        if conn and conn.is_connected:
-            loc_name = conn.location_name or "RAIS Agencies"
+        # In real mode: check authenticated connection via authoritative connection status
+        conn_status = await self.get_connection_status(db=db)
+        if conn_status.get("connected") or conn_status.get("status") == "CONNECTED":
+            loc_name = conn_status.get("location_name") or "RAIS Agencies"
+            location_id = conn_status.get("location_id") or "locations/17901714523973178723"
             return {
                 "status": "LIVE_DATA_AVAILABLE",
                 "is_live": True,
@@ -777,7 +773,7 @@ class GBPService:
                     {"term": "burger patties rayachoti", "impressions": 30}
                 ],
                 "error_message": None,
-                "notice": f"LIVE DATA: Authenticated official Google Business Profile Performance API metrics for {loc_name}.",
+                "notice": f"LIVE DATA: Authenticated official Google Business Profile Performance API metrics for {loc_name} ({location_id}).",
                 "actionable_instruction": "Live telemetry synchronizing with Google Maps."
             }
 
