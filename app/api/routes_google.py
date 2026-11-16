@@ -78,7 +78,8 @@ async def get_performance(
     force_state: Optional[str] = Query(
         None,
         description="Optional state simulator for UI verification: CONNECTED_BUT_NO_DATA, LIVE_DATA_AVAILABLE, API_ERROR"
-    )
+    ),
+    db: AsyncSession = Depends(get_db)
 ):
     """Retrieve Google Business Profile performance metrics strictly enforcing the 4-state authenticity model."""
-    return await gbp_service.get_performance_metrics(force_state=force_state)
+    return await gbp_service.get_performance_metrics(db=db, force_state=force_state)
