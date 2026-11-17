@@ -101,12 +101,16 @@ INITIAL_SKUS = [
 ]
 
 INITIAL_SERVICE_AREAS = [
-    {"area_name": "Rayachoty (516269)", "is_primary": True, "delivery_frequency": "Daily Fulfillment", "notes": "Local town doorstep delivery"},
-    {"area_name": "Sambepalli", "is_primary": False, "delivery_frequency": "Twice Weekly Route", "notes": "Commercial route van delivery"},
-    {"area_name": "Galiveedu", "is_primary": False, "delivery_frequency": "Twice Weekly Route", "notes": "Commercial route van delivery"},
-    {"area_name": "T. Sundupalli", "is_primary": False, "delivery_frequency": "Scheduled Deliveries", "notes": "Along Sundupalli highway corridor"},
-    {"area_name": "Rajampet Route", "is_primary": False, "delivery_frequency": "Weekly Scheduled", "notes": "Bulk orders only"},
-    {"area_name": "Madanapalle Route", "is_primary": False, "delivery_frequency": "Weekly Scheduled", "notes": "Subject to route confirmation"}
+    {"area_name": "Rayachoty (516269)", "is_primary": True, "delivery_frequency": "Daily Fulfillment", "notes": "Local town doorstep delivery and depot pickup"},
+    {"area_name": "Sundupalli", "is_primary": True, "delivery_frequency": "Daily Route", "notes": "Along Sundupalli highway commercial corridor"},
+    {"area_name": "Galiveedu", "is_primary": True, "delivery_frequency": "Daily / Alternate Day", "notes": "Fast food centers and restaurant supply"},
+    {"area_name": "Kadiri", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Commercial food kitchens and cafes"},
+    {"area_name": "Chinnamandem", "is_primary": True, "delivery_frequency": "Daily Route", "notes": "Direct kitchen drops"},
+    {"area_name": "Kalakada", "is_primary": False, "delivery_frequency": "Scheduled Deliveries", "notes": "Bakeries and fast food centers"},
+    {"area_name": "Mahal", "is_primary": False, "delivery_frequency": "Scheduled Deliveries", "notes": "Mahal Cross and regional eateries"},
+    {"area_name": "Madanapalle Route", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Bulk frozen cartons and pizza packaging"},
+    {"area_name": "Kadapa Corridor", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Direct supply for QSRs and dining"},
+    {"area_name": "Rajampet Sector", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Food packaging and catering supply"}
 ]
 
 # 30-Day Campaign Templates (Loaded in UNVERIFIED_DRAFT status)
