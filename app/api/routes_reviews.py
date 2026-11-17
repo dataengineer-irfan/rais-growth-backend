@@ -17,6 +17,16 @@ async def list_reviews(db: AsyncSession = Depends(get_db)):
     res = await db.execute(stmt)
     return res.scalars().all()
 
+@router.post("/seed-authentic")
+async def seed_authentic_reviews_endpoint(db: AsyncSession = Depends(get_db)):
+    """Seed the 4 authentic Google Maps customer reviews with bilingual Telugu/English response drafts."""
+    from app.seed_data.seed import seed_initial_data
+    await seed_initial_data(db)
+    stmt = select(Review).options(selectinload(Review.reply_drafts)).order_by(Review.create_time.desc())
+    res = await db.execute(stmt)
+    reviews = res.scalars().all()
+    return {"status": "SUCCESS", "seeded_reviews_count": len(reviews)}
+
 @router.post("/sync")
 async def sync_reviews(db: AsyncSession = Depends(get_db)):
     """Sync latest reviews from Google Business Profile and generate response drafts."""
