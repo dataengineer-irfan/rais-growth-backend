@@ -17,13 +17,13 @@ class Settings(BaseSettings):
     # AES Key for encrypting OAuth tokens at rest (32 bytes hex)
     TOKEN_ENCRYPTION_KEY: str = "4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0"
     
-    # Frontend Redirect Destination
-    FRONTEND_URL: str = "https://dataengineer-irfan.github.io/RAIS-AGENCIES"
+    # Frontend Redirect Destination (Default to Cloud Growth Engine Dashboard)
+    FRONTEND_URL: str = "https://rais-growth-backend.onrender.com"
     
     # Google Business Profile API Settings
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/google/callback"
+    GOOGLE_REDIRECT_URI: str = "https://rais-growth-backend.onrender.com/api/v1/google/callback"
     USE_MOCK_GBP: bool = True  # Automatically falls back to high-fidelity mock adapter when credentials are empty
     
     # LLM Settings (Provider Independent: mock, ollama, gemini, openai)
@@ -32,11 +32,12 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = [
+        "https://rais-growth-backend.onrender.com",
+        "https://dataengineer-irfan.github.io",
         "http://localhost:5173",
         "http://localhost:4173",
         "http://localhost:3000",
-        "http://localhost:8000",
-        "https://dataengineer-irfan.github.io"
+        "http://localhost:8000"
     ]
     
     # RAIS Verified Default Settings

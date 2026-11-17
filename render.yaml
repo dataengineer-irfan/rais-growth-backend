@@ -13,3 +13,7 @@ services:
         generateValue: true
       - key: TOKEN_ENCRYPTION_KEY
         value: 4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0
+      - key: FRONTEND_URL
+        value: https://rais-growth-backend.onrender.com
+      - key: GOOGLE_REDIRECT_URI
+        value: https://rais-growth-backend.onrender.com/api/v1/google/callback

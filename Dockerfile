@@ -10,8 +10,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source
+# Copy application source and static SPA frontend
 COPY app ./app
+COPY static ./static
 
 # Expose port (Cloud Run defaults to 8080)
 EXPOSE 8080
