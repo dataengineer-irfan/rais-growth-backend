@@ -47,3 +47,42 @@ async def update_lead(lead_id: int, data: B2BLeadUpdate, db: AsyncSession = Depe
     await db.commit()
     await db.refresh(lead)
     return lead
+
+@router.post("/{lead_id}/trigger-review-request")
+async def trigger_lead_review_request(lead_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Automated Post-Order Review Velocity Engine (Google Prominence):
+    Generates a personalized WhatsApp dispatch link containing the direct 1-click
+    Google Maps review URL to accelerate verified customer reviews from commercial buyers.
+    """
+    from app.services.nap_citation_service import nap_citation_service
+
+    stmt = select(B2BLead).where(B2BLead.id == lead_id)
+    res = await db.execute(stmt)
+    lead = res.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    cust_name = lead.contact_person or lead.business_name or "Valued Partner"
+    phone = lead.phone or "9347453135"
+
+    dispatch_data = nap_citation_service.generate_review_request(
+        customer_name=cust_name,
+        phone=phone,
+        order_summary=f"supplying {lead.business_name} in {lead.address or 'Rayachoty'}"
+    )
+
+    await log_audit(
+        db=db,
+        action="REVIEW_REQUEST_DISPATCHED",
+        resource_type="LEAD",
+        resource_id=str(lead.id),
+        details={"customer": cust_name, "phone": phone}
+    )
+
+    return {
+        "status": "SUCCESS",
+        "lead_id": lead.id,
+        "business_name": lead.business_name,
+        **dispatch_data
+    }

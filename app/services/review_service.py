@@ -118,34 +118,83 @@ class ReviewService:
         return imported_count
 
     def generate_response_draft(self, review: Review) -> Dict[str, str]:
-        """Generates contextual draft responses in English & Telugu."""
-        if review.sentiment == SentimentType.POSITIVE:
+        """
+        Algorithmic B2B Keyword & Entity Ingestion Engine (Google Local Relevance).
+        Dynamically weaves high-intent wholesale search entities (product SKUs, brands,
+        -18°C cold chain, and Sundupalli Road landmark) into owner responses.
+        Google's local algorithm indexes owner review replies for Google Maps search queries.
+        """
+        comment_lower = (review.comment or "").lower()
+        author = review.author_name or "Valued Partner"
+
+        # Detect specific commercial product categories
+        is_cheese = any(w in comment_lower for w in ["cheese", "mozzarella", "milky", "dairy", "pizza"])
+        is_fries = any(w in comment_lower for w in ["fries", "french", "potato", "crispy"])
+        is_momos_nonveg = any(w in comment_lower for w in ["momo", "nugget", "chicken", "patty", "burger", "triken"])
+        is_packaging = any(w in comment_lower for w in ["box", "boxes", "packaging", "paper", "ogr", "wrap", "container"])
+        is_general_frozen = any(w in comment_lower for w in ["frozen", "cold", "fresh", "stock", "quality", "taste"])
+
+        if review.is_complaint:
             english = (
-                f"Thank you {review.author_name} for your trusted partnership! At RAIS Agencies, we are committed to providing Rayachoty's "
-                f"commercial kitchens with guaranteed -18°C cold-chain quality and reliable wholesale supplies. "
-                f"We look forward to serving your kitchen regularly!"
+                f"Thank you {author} for bringing this to our personal attention. At RAIS Agencies, we maintain strict "
+                f"-18°C cold-chain standards and daily wholesale order accuracy for all Rayachoty food businesses. "
+                f"Please contact our depot manager directly at 9347453135 so we can rectify this immediately for your kitchen."
             )
             telugu = (
-                f"మీ విలువైన ఫీడ్‌బ్యాక్‌కు ధన్యవాదాలు {review.author_name} గారు! రాయచోటిలోని హోటళ్లు మరియు కేఫ్‌లకు ఉత్తమ హోల్‌సేల్ సేవలు "
-                f"మరియు -18°C నాణ్యమైన ఫ్రోజెన్ ఫుడ్స్ అందించడమే మా లక్ష్యం. ధన్యవాదాలు!"
+                f"{author} గారు, ఈ విషయాన్ని మా దృష్టికి తెచ్చినందుకు ధన్యవాదాలు. రాయచోటిలోని ఫుడ్ బిజినెస్‌లకు -18°C కోల్డ్-చైన్ నాణ్యత "
+                f"మరియు సరైన సమయానికి సరుకు అందించడమే మా బాధ్యత. దయచేసి మా మేనేజర్‌ను 9347453135 లో నేరుగా సంప్రదించండి, మేము వెంటనే పరిష్కరిస్తాము."
             )
-        elif review.is_complaint:
+        elif is_cheese:
             english = (
-                f"Thank you {review.author_name} for bringing this to our attention. We take product quality and delivery punctuality seriously. "
-                f"Please reach out directly to our management desk at 9347453135 so we can resolve this immediately for your kitchen."
+                f"Thank you {author} for your trusted partnership! RAIS Agencies is proud to be Rayachoty's direct wholesale source "
+                f"for Milky Mist commercial diced mozzarella cheese, 3-ply corrugated pizza boxes, and dairy supplies. "
+                f"Our Sundupalli Road depot ensures daily fresh stock for cafes and pizzerias across Annamayya district."
             )
             telugu = (
-                f"ఈ విషయాన్ని మా దృష్టికి తెచ్చినందుకు ధన్యవాదాలు {review.author_name} గారు. దయచేసి మా మేనేజ్‌మెంట్ డెస్క్ 9347453135 నంబర్‌ను "
-                f"సంప్రదించండి, మేము వెంటనే పరిష్కరిస్తాము."
+                f"{author} గారు, మీ విలువైన భాగస్వామ్యానికి ధన్యవాదాలు! రాయచోటిలోని పిజ్జా కిచెన్‌లు మరియు కేఫ్‌లకు మిల్కీ మిస్ట్ మొజారెల్లా చీజ్, "
+                f"నాణ్యమైన పిజ్జా బాక్స్‌లు హోల్‌సేల్ రేట్లకే అందించడం మా ప్రత్యేకత. సుండుపల్లి రోడ్డులోని మా డిపోలో ఎల్లప్పుడూ ఫ్రెష్ స్టాక్ సిద్ధంగా ఉంటుంది."
+            )
+        elif is_fries:
+            english = (
+                f"Thank you {author} for your great feedback! We are dedicated to providing Rayachoty fast-food kitchens with "
+                f"guaranteed -18°C cold-chain supply of Amul 6mm french fries, burger patties, and Del Monte sauces at genuine wholesale rates. "
+                f"Always available for instant pickup beside Indel Money Bank on Sundupalli Road."
+            )
+            telugu = (
+                f"{author} గారు, మీ పాజిటివ్ ఫీడ్‌బ్యాక్‌కు ధన్యవాదాలు! రాయచోటి ఫాస్ట్ ఫుడ్ సెంటర్లకు అముల్ ఫ్రెంచ్ ఫ్రైస్, బర్గర్ ప్యాటీస్ "
+                f"మరియు సాస్‌లను -18°C కోల్డ్-చైన్ భద్రతతో హోల్‌సేల్ ధరలకే అందిస్తున్నాము. సుండుపల్లి రోడ్డు ఇండెల్ బ్యాంక్ పక్కన మా వద్ద రెడీ స్టాక్ లభిస్తుంది."
+            )
+        elif is_momos_nonveg:
+            english = (
+                f"Thank you {author} for your positive review! RAIS Agencies is committed to supplying Rayachoty and Annamayya district with "
+                f"ready-to-steam Triken chicken momos, crispy chicken nuggets, and frozen snacks with uncompromised deep-freezer quality. "
+                f"Looking forward to serving your commercial kitchen regularly!"
+            )
+            telugu = (
+                f"{author} గారు, మీ అమూల్యమైన రివ్యూకు ధన్యవాదాలు! రాయచోటిలోని రెస్టారెంట్లు మరియు స్నాక్ పాయింట్లకు ట్రైకెన్ చికెన్ మోమోస్, "
+                f"నగ్గెట్స్ మరియు నాన్‌వెజ్ స్నాక్స్ నాణ్యమైన డీప్-ఫ్రీజర్ భద్రతతో నిరంతరం సరఫరా చేయడమే మా లక్ష్యం."
+            )
+        elif is_packaging:
+            english = (
+                f"Thank you {author} for choosing RAIS Agencies! We take pride in being Rayachoty's authorized supplier for "
+                f"certified 40 GSM OGR food wrapping butter paper, heavy 3-ply corrugated pizza takeaway boxes, and disposable containers. "
+                f"Bulk master bundles are always in stock at our Sundupalli Road warehouse."
+            )
+            telugu = (
+                f"{author} గారు, రైస్ ఏజెన్సీస్‌ను ఎంచుకున్నందుకు ధన్యవాదాలు! రాయచోటిలో సర్టిఫైడ్ OGR బటర్ పేపర్, 3-ప్లై పిజ్జా బాక్స్‌లు "
+                f"మరియు ఫుడ్ ప్యాకేజింగ్ మెటీరియల్స్ హోల్‌సేల్ బండిల్స్ రూపంలో మా సుండుపల్లి రోడ్డు వేర్‌హౌస్‌లో ఎల్లప్పుడూ అందుబాటులో ఉంటాయి."
             )
         else:
             english = (
-                f"Thank you {review.author_name} for reaching out to RAIS Agencies Rayachoty! For complete wholesale catalog and pricing, "
-                f"please connect directly with our B2B desk at 9347453135."
+                f"Thank you {author} for your trusted partnership with RAIS Agencies Rayachoty! As the central wholesale distribution "
+                f"hub on Sundupalli Road (beside Indel Money Bank), we guarantee -18°C cold-chain frozen snacks, commercial cheese, and "
+                f"food packaging with prompt daily dispatch across Annamayya district."
             )
             telugu = (
-                f"రైస్ ఏజెన్సీస్ రాయచోటిని సంప్రదించినందుకు ధన్యవాదాలు {review.author_name} గారు! పూర్తి హోల్‌సేల్ క్యాటలాగ్ కొరకు 9347453135 వాట్సాప్ నంబర్‌ను సంప్రదించండి."
+                f"{author} గారు, రైస్ ఏజెన్సీస్ రాయచోటిపై మీ నమ్మకానికి ధన్యవాదాలు! సుండుపల్లి రోడ్డులోని (ఇండెల్ బ్యాంక్ పక్కన) మా హోల్‌సేల్ హబ్ ద్వారా "
+                f"-18°C కోల్డ్-చైన్ ఫ్రోజెన్ ఫుడ్స్, మిల్కీ మిస్ట్ చీజ్ మరియు ప్యాకేజింగ్ సరుకులను అన్నమయ్య జిల్లా అంతటా సమయానికి అందిస్తున్నాము."
             )
+
         return {"english": english, "telugu": telugu}
 
     async def create_test_review(
