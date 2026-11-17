@@ -34,19 +34,24 @@ async def oauth_callback(
     Validates CSRF state, exchanges authorization code for tokens, and securely persists credentials.
     """
     frontend_url = getattr(settings, "FRONTEND_URL", "https://dataengineer-irfan.github.io/RAIS-AGENCIES").rstrip("/")
+    # Build cloud target redirect: if pointing to GitHub Pages, append hash to return straight to admin dashboard
+    success_target = f"{frontend_url}/?google_auth=success#/admin" if "github.io" in frontend_url else f"{frontend_url}/?google_auth=success"
+    def error_target(msg: str) -> str:
+        encoded_err = urllib.parse.quote(msg)
+        return f"{frontend_url}/?google_auth=error&error_description={encoded_err}#/admin" if "github.io" in frontend_url else f"{frontend_url}/?google_auth=error&error_description={encoded_err}"
     
     # 1. Handle Google-side authorization errors (e.g., user clicked cancel)
     if error:
         err_msg = error_description or error or "Google authorization was cancelled or denied."
         return RedirectResponse(
-            url=f"{frontend_url}/?google_auth=error&error_description={urllib.parse.quote(err_msg)}",
+            url=error_target(err_msg),
             status_code=302
         )
 
     # 2. Validate mandatory parameters
     if not code or not state:
         return RedirectResponse(
-            url=f"{frontend_url}/?google_auth=error&error_description=Missing+required+code+or+state+parameter",
+            url=error_target("Missing required code or state parameter"),
             status_code=302
         )
 
@@ -54,12 +59,12 @@ async def oauth_callback(
     try:
         await gbp_service.process_oauth_callback(db=db, code=code, state=state)
         return RedirectResponse(
-            url=f"{frontend_url}/?google_auth=success",
+            url=success_target,
             status_code=302
         )
     except ValueError as e:
         return RedirectResponse(
-            url=f"{frontend_url}/?google_auth=error&error_description={urllib.parse.quote(str(e))}",
+            url=error_target(str(e)),
             status_code=302
         )
 

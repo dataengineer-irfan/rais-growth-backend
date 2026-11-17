@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     # AES Key for encrypting OAuth tokens at rest (32 bytes hex)
     TOKEN_ENCRYPTION_KEY: str = "4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0"
     
-    # Frontend Redirect Destination (Default to Cloud Growth Engine Dashboard)
-    FRONTEND_URL: str = "https://rais-growth-backend.onrender.com"
+    # Frontend Redirect Destination (Default to Cloud Growth Engine Dashboard on GitHub Pages)
+    FRONTEND_URL: str = "https://dataengineer-irfan.github.io/RAIS-AGENCIES"
     
     # Google Business Profile API Settings
     GOOGLE_CLIENT_ID: str = ""
