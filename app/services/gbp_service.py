@@ -592,7 +592,7 @@ class GBPService:
         db: Optional[AsyncSession] = None,
         client: Optional[httpx.AsyncClient] = None
     ) -> List[Dict[str, Any]]:
-        """Retrieves verified reviews from Google Business Profile. Returns clean empty list until real reviews sync."""
+        """Retrieves authentic verified reviews from Google Business Profile API."""
         if self.is_mock or not bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET):
             return []
 
@@ -600,8 +600,48 @@ class GBPService:
             token = await self.get_valid_access_token(db, client=client)
             if not token:
                 return []
-            # In live mode: call official review API
-            return []
+
+            stmt = select(GoogleConnection).order_by(GoogleConnection.id.desc()).limit(1)
+            res = await db.execute(stmt)
+            conn = res.scalar_one_or_none()
+            if not conn or not conn.account_id:
+                return []
+
+            target_account = conn.account_id
+            target_location = location_id or conn.location_id
+            if not target_location:
+                return []
+
+            acc_clean = target_account if target_account.startswith("accounts/") else f"accounts/{target_account}"
+            loc_clean = target_location if target_location.startswith("locations/") else f"locations/{target_location}"
+
+            review_url = f"https://mybusiness.googleapis.com/v4/{acc_clean}/{loc_clean}/reviews"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            should_close = False
+            if client is None:
+                client = httpx.AsyncClient(timeout=15.0)
+                should_close = True
+
+            try:
+                resp = await client.get(review_url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("reviews", [])
+                elif resp.status_code == 404:
+                    alt_url = f"https://mybusiness.googleapis.com/v4/{target_location}/reviews"
+                    resp_alt = await client.get(alt_url, headers=headers)
+                    if resp_alt.status_code == 200:
+                        return resp_alt.json().get("reviews", [])
+                return []
+            except Exception:
+                return []
+            finally:
+                if should_close:
+                    await client.aclose()
 
         return []
 
@@ -634,7 +674,51 @@ class GBPService:
                     "is_simulated": False,
                     "notice": "APPROVED LOCALLY: Not published to Google because OAuth authorization is pending."
                 }
-            raise NotImplementedError("Live review reply push awaiting active Google Cloud project approval.")
+
+            stmt = select(GoogleConnection).order_by(GoogleConnection.id.desc()).limit(1)
+            res = await db.execute(stmt)
+            conn = res.scalar_one_or_none()
+            if not conn or not conn.account_id:
+                raise ValueError("No authenticated Google connection found.")
+
+            acc_clean = conn.account_id if conn.account_id.startswith("accounts/") else f"accounts/{conn.account_id}"
+            loc_clean = (location_id or conn.location_id)
+            loc_clean = loc_clean if loc_clean.startswith("locations/") else f"locations/{loc_clean}"
+
+            url = f"https://mybusiness.googleapis.com/v4/{acc_clean}/{loc_clean}/reviews/{review_id}/reply"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            body = {"comment": reply_text}
+
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.put(url, headers=headers, json=body)
+                    if resp.status_code in [200, 201]:
+                        data = resp.json()
+                        return {
+                            "comment": reply_text,
+                            "update_time": data.get("updateTime", datetime.now(timezone.utc).isoformat()),
+                            "status": "PUBLISHED_TO_GOOGLE",
+                            "is_published_to_google": True,
+                            "is_simulated": False
+                        }
+                    else:
+                        return {
+                            "comment": reply_text,
+                            "update_time": datetime.now(timezone.utc).isoformat(),
+                            "status": "APPROVED_NOT_PUBLISHED",
+                            "is_published_to_google": False,
+                            "notice": f"Google response: {resp.status_code}"
+                        }
+            except Exception:
+                return {
+                    "comment": reply_text,
+                    "update_time": datetime.now(timezone.utc).isoformat(),
+                    "status": "APPROVED_NOT_PUBLISHED",
+                    "is_published_to_google": False
+                }
 
         raise NotImplementedError("Live Google API credentials not authorized.")
 

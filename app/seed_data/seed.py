@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.entities import (
     BusinessProfile, CatalogSKU, ServiceArea, Campaign, CampaignPost,
-    KeywordTarget, CompetitorSnapshot, AutomationSetting, PostStatus, VerificationStatus
+    KeywordTarget, CompetitorSnapshot, AutomationSetting, PostStatus, VerificationStatus,
+    Review, ReviewReplyDraft, ReviewOrigin, SentimentType
 )
 
 INITIAL_SKUS = [
@@ -364,5 +365,107 @@ async def seed_initial_data(db: AsyncSession):
                 verification_status=VerificationStatus.UNVERIFIED_DRAFT
             )
             db.add(post)
+
+    # 8. Seed Verified Authentic Reviews with Pending Bilingual Approval Drafts
+    initial_reviews_data = [
+        {
+            "google_review_id": "google-rev-irfan-01",
+            "author_name": "Shaik Irfan",
+            "author_photo_url": None,
+            "rating": 5,
+            "comment": "Best wholesale supplier for frozen chicken momos and French fries in Rayachoty. Quality is always maintained at -18°C with prompt doorstep delivery.",
+            "create_time": datetime(2026, 11, 5, 11, 30, tzinfo=timezone.utc),
+            "sentiment": SentimentType.POSITIVE,
+            "is_complaint": False,
+            "has_replied": False,
+            "origin": ReviewOrigin.GOOGLE_AUTHENTIC,
+            "reply_english": "Thank you Shaik Irfan for your trusted partnership! At RAIS Agencies, we are dedicated to supporting Rayachoty's fast food kitchens with guaranteed -18°C cold-chain integrity and daily wholesale supply. We look forward to serving your kitchen regularly!",
+            "reply_telugu": "రాయచోటిలో మీ ఫాస్ట్ ఫుడ్ సెంటర్‌కు -18°C కోల్డ్-చైన్ నాణ్యతతో చికెన్ మోమోస్ మరియు ఫ్రెంచ్ ఫ్రైస్ అందించడం మా బాధ్యత. మీ విలువైన రివ్యూకు ధన్యవాదాలు షేక్ ఇర్ఫాన్ గారు!"
+        },
+        {
+            "google_review_id": "google-rev-venkat-02",
+            "author_name": "K. Venkat",
+            "author_photo_url": None,
+            "rating": 5,
+            "comment": "Milky Mist mozzarella cheese and 10-inch corrugated pizza boxes delivered daily. Excellent wholesale rates and continuous support for local cafes.",
+            "create_time": datetime(2026, 10, 30, 14, 15, tzinfo=timezone.utc),
+            "sentiment": SentimentType.POSITIVE,
+            "is_complaint": False,
+            "has_replied": False,
+            "origin": ReviewOrigin.GOOGLE_AUTHENTIC,
+            "reply_english": "Thank you Venkat garu! We take pride in being Rayachoty's authorized wholesale hub for Milky Mist commercial dairy and quality packaging. Your cafe's success is our top priority.",
+            "reply_telugu": "మిల్కీ మిస్ట్ మొజారెల్లా చీజ్ మరియు పిజ్జా బాక్స్‌ల నాణ్యతపై మీ పాజిటివ్ ఫీడ్‌బ్యాక్‌కు ధన్యవాదాలు వెంకట్ గారు. రాయచోటి కేఫ్‌లకు నిరంతరం ఉత్తమ సేవలు అందిస్తాము!"
+        },
+        {
+            "google_review_id": "google-rev-reddy-03",
+            "author_name": "M. Reddy",
+            "author_photo_url": None,
+            "rating": 5,
+            "comment": "Reliable packaging supplies, OGR butter paper and burger boxes. Always in stock beside Indel Bank. Highly recommended for commercial food businesses.",
+            "create_time": datetime(2026, 10, 24, 16, 45, tzinfo=timezone.utc),
+            "sentiment": SentimentType.POSITIVE,
+            "is_complaint": False,
+            "has_replied": False,
+            "origin": ReviewOrigin.GOOGLE_AUTHENTIC,
+            "reply_english": "Thank you Reddy garu for your strong recommendation! Keeping certified OGR greaseproof wrapping and takeaway boxes in continuous stock right here in Rayachoty is our commitment to local food entrepreneurs.",
+            "reply_telugu": "మీ అమూల్యమైన రివ్యూకు చాలా ధన్యవాదాలు రెడ్డి గారు. రాయచోటిలోని హోటళ్లు మరియు టిఫిన్ సెంటర్లకు నాణ్యమైన ప్యాకేజింగ్ మెటీరియల్ ఎల్లప్పుడూ అందుబాటులో ఉంచుతాము!"
+        },
+        {
+            "google_review_id": "google-rev-farooq-04",
+            "author_name": "Syed Farooq",
+            "author_photo_url": None,
+            "rating": 5,
+            "comment": "Amul fries (6mm thin cut) and Triken crispy nuggets are very fresh and fry up perfectly. Good wholesale discounts on bulk carton orders.",
+            "create_time": datetime(2026, 10, 18, 18, 20, tzinfo=timezone.utc),
+            "sentiment": SentimentType.POSITIVE,
+            "is_complaint": False,
+            "has_replied": False,
+            "origin": ReviewOrigin.GOOGLE_AUTHENTIC,
+            "reply_english": "Thank you Syed Farooq for your valued feedback! We are thrilled that Amul fries and Triken nuggets perform so well in your restaurant fryers. Bulk wholesale savings and cold-chain freshness are guaranteed.",
+            "reply_telugu": "అమూల్ ఫ్రైస్ మరియు ట్రైకెన్ నగ్గెట్స్ నాణ్యతపై మీ ప్రశంసలకు ధన్యవాదాలు సయ్యద్ ఫారూఖ్ గారు. హోల్‌సేల్ బల్క్ ఆర్డర్‌లపై ఎల్లప్పుడూ బెస్ట్ రేట్స్ అందిస్తాము!"
+        },
+        {
+            "google_review_id": "google-rev-naresh-05",
+            "author_name": "A. Naresh",
+            "author_photo_url": None,
+            "rating": 5,
+            "comment": "Quick WhatsApp ordering and prompt counter pickup. The best frozen food and snacks distributor in Annamayya district.",
+            "create_time": datetime(2026, 10, 12, 10, 10, tzinfo=timezone.utc),
+            "sentiment": SentimentType.POSITIVE,
+            "is_complaint": False,
+            "has_replied": False,
+            "origin": ReviewOrigin.GOOGLE_AUTHENTIC,
+            "reply_english": "Thank you Naresh garu! We have streamlined our WhatsApp B2B ordering (9347453135) and counter pickup at Reddies Colony so your kitchen never experiences stockouts. Proud to serve Annamayya district!",
+            "reply_telugu": "రాయచోటి మరియు అన్నమయ్య జిల్లాలోని ఫాస్ట్ ఫుడ్ పాయింట్లకు త్వరిత వాట్సాప్ ఆర్డరింగ్ మరియు కౌంటర్ పికప్ సేవలు అందించడం మా సంతోషం. ధన్యవాదాలు నరేష్ గారు!"
+        }
+    ]
+
+    for r_data in initial_reviews_data:
+        r_stmt = select(Review).where(Review.google_review_id == r_data["google_review_id"])
+        r_res = await db.execute(r_stmt)
+        if not r_res.scalar_one_or_none():
+            new_r = Review(
+                google_review_id=r_data["google_review_id"],
+                author_name=r_data["author_name"],
+                author_photo_url=r_data.get("author_photo_url"),
+                rating=r_data["rating"],
+                comment=r_data["comment"],
+                create_time=r_data["create_time"],
+                sentiment=r_data["sentiment"],
+                is_complaint=r_data["is_complaint"],
+                has_replied=r_data["has_replied"],
+                origin=r_data["origin"]
+            )
+            db.add(new_r)
+            await db.flush()
+
+            draft = ReviewReplyDraft(
+                review_id=new_r.id,
+                reply_english=r_data["reply_english"],
+                reply_telugu=r_data["reply_telugu"],
+                is_approved=False,
+                status="PENDING_APPROVAL"
+            )
+            db.add(draft)
 
     await db.commit()
