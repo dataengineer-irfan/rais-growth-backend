@@ -107,6 +107,44 @@ class ReviewService:
             )
         return {"english": english, "telugu": telugu}
 
+    async def create_test_review(
+        self,
+        db: AsyncSession,
+        author_name: str = "Rayachoty Cafe Partner",
+        rating: int = 5,
+        comment: str = "Excellent wholesale service! Timely delivery of Amul french fries and Milky Mist cheese in Rayachoty."
+    ) -> Review:
+        """Creates an authentic review with bilingual response drafts for client workflow demonstration."""
+        import uuid
+        review_id = f"test-rev-{uuid.uuid4().hex[:8]}"
+        analysis = self.classify_sentiment(rating, comment)
+        
+        new_rev = Review(
+            google_review_id=review_id,
+            author_name=author_name,
+            rating=rating,
+            comment=comment,
+            create_time=datetime.now(timezone.utc),
+            sentiment=analysis["sentiment"],
+            is_complaint=analysis["is_complaint"],
+            has_replied=False,
+            origin=ReviewOrigin.LOCAL_DIRECT
+        )
+        db.add(new_rev)
+        await db.flush()
+
+        draft = self.generate_response_draft(new_rev)
+        draft_obj = ReviewReplyDraft(
+            review_id=new_rev.id,
+            reply_english=draft["english"],
+            reply_telugu=draft["telugu"],
+            is_approved=False,
+            status=ReplyStatus.PENDING_APPROVAL.value
+        )
+        db.add(draft_obj)
+        await db.commit()
+        return new_rev
+
     async def approve_and_publish_reply(
         self,
         db: AsyncSession,

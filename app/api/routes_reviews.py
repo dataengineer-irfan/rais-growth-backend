@@ -23,6 +23,17 @@ async def sync_reviews(db: AsyncSession = Depends(get_db)):
     count = await review_service.sync_reviews_from_gbp(db)
     return {"status": "SUCCESS", "new_reviews_synced": count}
 
+@router.post("/test-review")
+async def create_test_review(
+    rating: int = 5,
+    author_name: str = "Rayachoty Cafe Partner",
+    comment: str = "Best wholesale frozen snacks and Amul fries supply in Rayachoty! Delivered at -18C on time.",
+    db: AsyncSession = Depends(get_db)
+):
+    """Generates an authentic customer review with pending bilingual AI drafts to demonstrate approval gate."""
+    rev = await review_service.create_test_review(db=db, author_name=author_name, rating=rating, comment=comment)
+    return {"status": "SUCCESS", "review_id": rev.id}
+
 @router.post("/reply/{draft_id}/approve")
 async def approve_and_publish_reply(draft_id: int, approval_data: ReviewReplyApproval, db: AsyncSession = Depends(get_db)):
     """
