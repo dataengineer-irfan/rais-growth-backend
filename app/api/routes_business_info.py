@@ -11,6 +11,8 @@ from app.schemas.schemas import (
 
 router = APIRouter(prefix="/business-info", tags=["Business Information Management"])
 
+@router.get("", response_model=BusinessProfileRead)
+@router.get("/", response_model=BusinessProfileRead, include_in_schema=False)
 @router.get("/profile", response_model=BusinessProfileRead)
 async def get_profile(db: AsyncSession = Depends(get_db)):
     """Fetch current editable business profile."""
