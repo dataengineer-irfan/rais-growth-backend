@@ -34,6 +34,10 @@ async def oauth_callback(
     Validates CSRF state, exchanges authorization code for tokens, and securely persists credentials.
     """
     frontend_url = getattr(settings, "FRONTEND_URL", "https://dataengineer-irfan.github.io/RAIS-AGENCIES").rstrip("/")
+    # Hard safety guard: unconditionally eliminate any localhost or 127.0.0.1 redirect
+    if not frontend_url or "localhost" in frontend_url or "127.0.0.1" in frontend_url:
+        frontend_url = "https://dataengineer-irfan.github.io/RAIS-AGENCIES"
+    
     # Build cloud target redirect: if pointing to GitHub Pages, append hash to return straight to admin dashboard
     success_target = f"{frontend_url}/?google_auth=success#/admin" if "github.io" in frontend_url else f"{frontend_url}/?google_auth=success"
     def error_target(msg: str) -> str:
