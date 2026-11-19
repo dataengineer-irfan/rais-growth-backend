@@ -239,7 +239,7 @@ class ReviewService:
         self,
         db: AsyncSession,
         draft_id: int,
-        custom_reply_text: str,
+        custom_reply_text: Optional[str] = None,
         approver_name: str = "Administrator"
     ) -> Dict[str, Any]:
         """
@@ -263,7 +263,8 @@ class ReviewService:
             raise ValueError("Associated review record not found.")
 
         now = datetime.now(timezone.utc)
-        draft.reply_english = custom_reply_text
+        reply_to_send = custom_reply_text or draft.reply_english or ""
+        draft.reply_english = reply_to_send
         draft.is_approved = True
         draft.approved_by = approver_name
         draft.approved_at = now
@@ -272,28 +273,29 @@ class ReviewService:
         publish_res = await gbp_service.reply_to_review(
             location_id=None,
             review_id=review.google_review_id,
-            reply_text=custom_reply_text,
+            reply_text=reply_to_send,
             db=db
         )
 
-        review.has_replied = True
-        draft.published_at = now
         draft.status = publish_res.get("status", ReplyStatus.APPROVED_NOT_PUBLISHED.value)
+        review.has_replied = True
+        if draft.status == ReplyStatus.PUBLISHED_TO_GOOGLE.value:
+            draft.published_at = now
 
         # Audit log explicit human approval
         await log_audit(
             db=db,
             action="APPROVE_REVIEW_REPLY",
-            entity_type="ReviewReplyDraft",
-            entity_id=str(draft.id),
-            user_id=approver_name,
+            resource_type="ReviewReplyDraft",
+            resource_id=str(draft.id),
+            actor=approver_name,
             details={
                 "review_id": review.id,
                 "google_review_id": review.google_review_id,
                 "author_name": review.author_name,
                 "rating": review.rating,
                 "published_status": draft.status,
-                "text_snippet": custom_reply_text[:60]
+                "text_snippet": reply_to_send[:60]
             }
         )
 

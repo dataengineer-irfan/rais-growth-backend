@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.services.gbp_service import gbp_service
 from app.schemas.schemas import GoogleAuthorizeResponse, GoogleStatusResponse
