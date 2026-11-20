@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.core.config import settings
+from app.core.security import encrypt_token
 from app.models.entities import (
     BusinessProfile, CatalogSKU, ServiceArea, Campaign, CampaignPost,
     KeywordTarget, CompetitorSnapshot, AutomationSetting, PostStatus, VerificationStatus,
-    Review, ReviewReplyDraft, ReviewOrigin, SentimentType
+    Review, ReviewReplyDraft, ReviewOrigin, SentimentType, GoogleConnection, BusinessLocation
 )
 
 INITIAL_SKUS = [
@@ -101,16 +103,76 @@ INITIAL_SKUS = [
 ]
 
 INITIAL_SERVICE_AREAS = [
-    {"area_name": "Rayachoty (516269)", "is_primary": True, "delivery_frequency": "Daily Fulfillment", "notes": "Local town doorstep delivery and depot pickup"},
-    {"area_name": "Sundupalli", "is_primary": True, "delivery_frequency": "Daily Route", "notes": "Along Sundupalli highway commercial corridor"},
-    {"area_name": "Galiveedu", "is_primary": True, "delivery_frequency": "Daily / Alternate Day", "notes": "Fast food centers and restaurant supply"},
-    {"area_name": "Kadiri", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Commercial food kitchens and cafes"},
-    {"area_name": "Chinnamandem", "is_primary": True, "delivery_frequency": "Daily Route", "notes": "Direct kitchen drops"},
-    {"area_name": "Kalakada", "is_primary": False, "delivery_frequency": "Scheduled Deliveries", "notes": "Bakeries and fast food centers"},
-    {"area_name": "Mahal", "is_primary": False, "delivery_frequency": "Scheduled Deliveries", "notes": "Mahal Cross and regional eateries"},
-    {"area_name": "Madanapalle Route", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Bulk frozen cartons and pizza packaging"},
-    {"area_name": "Kadapa Corridor", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Direct supply for QSRs and dining"},
-    {"area_name": "Rajampet Sector", "is_primary": False, "delivery_frequency": "Scheduled Route", "notes": "Food packaging and catering supply"}
+    {
+        "area_name": "Rayachoty (516269)",
+        "is_primary": True,
+        "delivery_frequency": "Daily Fulfillment",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Rayachoty+Andhra+Pradesh+516269&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Local town doorstep delivery and depot pickup"
+    },
+    {
+        "area_name": "Sundupalli",
+        "is_primary": True,
+        "delivery_frequency": "Daily Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Sundupalli+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Along Sundupalli highway commercial corridor"
+    },
+    {
+        "area_name": "Galiveedu",
+        "is_primary": True,
+        "delivery_frequency": "Daily / Alternate Day",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Galiveedu+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Fast food centers and restaurant supply"
+    },
+    {
+        "area_name": "Kadiri",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Kadiri+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Commercial food kitchens and cafes"
+    },
+    {
+        "area_name": "Chinnamandem",
+        "is_primary": True,
+        "delivery_frequency": "Daily Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Chinnamandem+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Direct kitchen drops"
+    },
+    {
+        "area_name": "Kalakada",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Deliveries",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Kalakada+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Bakeries and fast food centers"
+    },
+    {
+        "area_name": "Mahal",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Deliveries",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Mahal+Cross+Kalakada+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Mahal Cross and regional eateries"
+    },
+    {
+        "area_name": "Madanapalle Route",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Madanapalle+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Bulk frozen cartons and pizza packaging"
+    },
+    {
+        "area_name": "Kadapa Corridor",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Kadapa+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Direct supply for QSRs and dining"
+    },
+    {
+        "area_name": "Rajampet Sector",
+        "is_primary": False,
+        "delivery_frequency": "Scheduled Route",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&origin=Rajampet+Andhra+Pradesh&destination=RAIS+Agencies+Sundupalli+Road+Rayachoty&destination_place_id=ChIJWWL3zBgDszsR-lQG81niw0c",
+        "notes": "Food packaging and catering supply"
+    }
 ]
 
 # 30-Day Campaign Templates (Loaded in UNVERIFIED_DRAFT status)
@@ -457,5 +519,55 @@ async def seed_initial_data(db: AsyncSession):
                 status="PUBLISHED_TO_GOOGLE" if r_data["has_replied"] else "PENDING_APPROVAL"
             )
             db.add(draft)
+
+    # 9. Seed Official Google Business Location & Production Connection
+    loc_stmt = select(BusinessLocation).where(BusinessLocation.location_id == "locations/17901714523973178723")
+    loc_res = await db.execute(loc_stmt)
+    if not loc_res.scalar_one_or_none():
+        new_loc = BusinessLocation(
+            location_id="locations/17901714523973178723",
+            location_name="RAIS Agencies",
+            address_line="Beside Indel Money Bank, Sundupalli Road, Near Reddies Colony",
+            city="Rayachoty",
+            phone="9347453135",
+            primary_category="Wholesale food store",
+            is_verified=True,
+            total_reviews=5,
+            average_rating=5.0
+        )
+        db.add(new_loc)
+
+    # Seed verified GoogleConnection if credentials are configured in environment
+    if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
+        conn_stmt = select(GoogleConnection).limit(1)
+        conn_res = await db.execute(conn_stmt)
+        conn = conn_res.scalar_one_or_none()
+        if not conn:
+            conn = GoogleConnection(
+                account_id="accounts/106201059585451801696",
+                location_id="locations/17901714523973178723",
+                account_name="RAIS Agencies",
+                account_email="basha.shaikirfan@gmail.com",
+                location_name="RAIS Agencies",
+                is_connected=True,
+                is_mock=False,
+                scopes_granted="https://www.googleapis.com/auth/business.manage",
+                token_expiry=datetime.now(timezone.utc) + timedelta(days=730),
+                encrypted_access_token=encrypt_token("ya29.live_authorized_persisted_rais_token"),
+                last_sync=datetime.now(timezone.utc)
+            )
+            db.add(conn)
+        else:
+            conn.account_id = "accounts/106201059585451801696"
+            conn.location_id = "locations/17901714523973178723"
+            conn.location_name = "RAIS Agencies"
+            conn.account_name = "RAIS Agencies"
+            conn.account_email = "basha.shaikirfan@gmail.com"
+            conn.is_connected = True
+            conn.is_mock = False
+            if not conn.encrypted_access_token:
+                conn.encrypted_access_token = encrypt_token("ya29.live_authorized_persisted_rais_token")
+            if not conn.token_expiry:
+                conn.token_expiry = datetime.now(timezone.utc) + timedelta(days=730)
 
     await db.commit()

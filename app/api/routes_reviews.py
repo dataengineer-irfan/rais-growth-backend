@@ -1,4 +1,6 @@
 from typing import List, Dict, Any, Optional
+import urllib.parse
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,6 +11,96 @@ from app.schemas.schemas import ReviewRead, ReviewReplyApproval
 from app.services.review_service import review_service
 
 router = APIRouter(prefix="/reviews", tags=["Reviews & Reputation Management"])
+
+class ReviewRequestPayload(BaseModel):
+    customer_name: str
+    cafe_name: str
+    mandal_town: str = "Rayachoty"
+    phone_number: Optional[str] = None
+    products: Optional[List[str]] = None
+
+@router.post("/generate-request")
+async def generate_review_request(payload: ReviewRequestPayload):
+    """
+    ALGORITHMIC ENHANCEMENT 1: Automated WhatsApp Review Request Funnel with Keyword Pre-population.
+    Generates a 1-click WhatsApp review invitation with pre-populated B2B search terms 
+    (French fries, Milky Mist mozzarella cheese, Triken momos, pizza boxes) directly driving Google Maps local pack rankings.
+    """
+    prods = payload.products or ["French Fries", "Milky Mist Mozzarella Cheese", "Triken Momos", "Pizza Boxes"]
+    prods_str = ", ".join(prods)
+    direct_review_url = "https://search.google.com/local/writereview?placeid=ChIJWWL3zBgDszsR-lQG81niw0c"
+    
+    suggested_review = (
+        f"RAIS Agencies is our trusted wholesale supply partner in {payload.mandal_town}. "
+        f"Top quality {prods_str} with reliable -18°C cold chain delivery and prompt depot service on Sundupalli Road!"
+    )
+    
+    whatsapp_message = (
+        f"Namaste {payload.customer_name} ({payload.cafe_name}, {payload.mandal_town})! 🙏\n\n"
+        f"Thank you for choosing RAIS Agencies Rayachoty for your order of {prods_str}.\n\n"
+        f"Could you take 30 seconds to support our local wholesale depot with a 5-star Google Maps review?\n\n"
+        f"⭐ Direct Google Review Link:\n{direct_review_url}\n\n"
+        f"💡 Helpful 1-Click Review Template (feel free to copy & paste):\n"
+        f'"{suggested_review}"\n\n'
+        f"Thank you for your business! — Team RAIS Agencies, Rayachoty (WhatsApp: 9347453135)"
+    )
+    
+    clean_phone = payload.phone_number.strip().replace("+", "").replace(" ", "").replace("-", "") if payload.phone_number else ""
+    if clean_phone and not clean_phone.startswith("91") and len(clean_phone) == 10:
+        clean_phone = f"91{clean_phone}"
+        
+    encoded_text = urllib.parse.quote(whatsapp_message)
+    whatsapp_url = f"https://wa.me/{clean_phone}?text={encoded_text}" if clean_phone else f"https://wa.me/?text={encoded_text}"
+    
+    return {
+        "status": "SUCCESS",
+        "direct_review_url": direct_review_url,
+        "customer_name": payload.customer_name,
+        "cafe_name": payload.cafe_name,
+        "mandal_town": payload.mandal_town,
+        "suggested_review": suggested_review,
+        "whatsapp_message": whatsapp_message,
+        "whatsapp_url": whatsapp_url
+    }
+
+@router.get("/request-templates")
+async def get_review_request_templates():
+    """Returns ready-to-dispatch review request templates tailored for the 10 distribution corridors."""
+    direct_review_url = "https://search.google.com/local/writereview?placeid=ChIJWWL3zBgDszsR-lQG81niw0c"
+    corridors = [
+        ("Rayachoty", "Cafe / Fast Food Center", ["French Fries", "Milky Mist Mozzarella Cheese", "Triken Momos", "Pizza Boxes"]),
+        ("Sundupalli", "Eatery & Hotel", ["6mm French Fries", "Burger Patties", "Butter Paper Sheets"]),
+        ("Galiveedu", "Fast Food Joint", ["Triken Chicken Momos", "Mozzarella Diced", "Pizza Bases"]),
+        ("Kadiri", "Commercial Kitchen", ["Milky Mist Cheese", "Amul French Fries", "Takeaway Pizza Boxes"]),
+        ("Chinnamandem", "Fast Food Counter", ["Chicken Nuggets", "French Fries", "Burger Mayonnaise"]),
+        ("Kalakada", "Bakery & Pizza Point", ["Mozzarella Cheese", "Pizza Bases 10 inch", "Pizza Boxes"]),
+        ("Mahal", "Highway Food Stall", ["French Fries 9mm", "Momos", "OGR Butter Paper"]),
+        ("Madanapalle", "Restaurant & QSR", ["Milky Mist Mozzarella", "Triken Momos", "Amul French Fries"]),
+        ("Kadapa", "Dining & Fast Food", ["Wholesale Frozen Snacks", "Mozzarella Cheese", "Packaging Boxes"]),
+        ("Rajampet", "Catering & Cafe", ["Frozen Fries", "Momos", "Pizza Boxes 8/10/12 inch"])
+    ]
+    
+    templates = []
+    for town, biz_type, prods in corridors:
+        prods_str = ", ".join(prods)
+        prompt = (
+            f"RAIS Agencies is our trusted wholesale supply partner in {town}. "
+            f"Top quality {prods_str} with reliable -18°C cold chain delivery and prompt depot service on Sundupalli Road!"
+        )
+        msg = (
+            f"Namaste! 🙏 Thank you for trusting RAIS Agencies Rayachoty for your order of {prods_str}.\n"
+            f"Could you support us with a quick 5-star Google Maps review?\n\n"
+            f"⭐ Review link: {direct_review_url}\n"
+            f'Suggested text: "{prompt}"'
+        )
+        templates.append({
+            "mandal_town": town,
+            "business_type": biz_type,
+            "products": prods,
+            "suggested_review": prompt,
+            "whatsapp_url": f"https://wa.me/?text={urllib.parse.quote(msg)}"
+        })
+    return templates
 
 @router.get("", response_model=List[ReviewRead])
 async def list_reviews(db: AsyncSession = Depends(get_db)):

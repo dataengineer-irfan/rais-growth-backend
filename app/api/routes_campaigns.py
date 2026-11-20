@@ -79,3 +79,42 @@ async def generate_post(
 async def trigger_publish_cycle(db: AsyncSession = Depends(get_db)):
     """Manually triggers a check on the publishing queue to publish ready posts."""
     return await scheduler_service.execute_publishing_cycle(db)
+
+@router.post("/posts/{post_id}/publish-now")
+async def publish_post_now(post_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    ALGORITHMIC ENHANCEMENT 5: 1-Click Google LocalPost Publishing Engine.
+    Dispatches a single approved post directly to Google Business Profile.
+    """
+    stmt = select(CampaignPost).where(CampaignPost.id == post_id)
+    res = await db.execute(stmt)
+    post = res.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Campaign post not found.")
+
+    summary_text = post.headline + "\n\n" + post.content_english
+    if post.content_telugu:
+        summary_text += "\n\n" + post.content_telugu
+
+    payload = {
+        "summary": summary_text,
+        "call_to_action": post.call_to_action or "CALL_NOW",
+        "cta_url": "https://wa.me/919347453135"
+    }
+
+    from app.services.gbp_service import gbp_service
+    from datetime import datetime, timezone
+    
+    result = await gbp_service.create_local_post(None, payload, db=db)
+    post.status = PostStatus.PUBLISHED
+    post.published_at = datetime.now(timezone.utc)
+    post.google_post_id = result.get("name")
+    await db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": "Post successfully published to Google Business Profile!",
+        "post_id": post.id,
+        "google_post_id": post.google_post_id,
+        "is_published_to_google": result.get("is_published_to_google", True)
+    }

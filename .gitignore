@@ -9,3 +9,7 @@ __pycache__/
 *.sqlite3
 .pytest_cache/
 tests/
+static/images/
+static/assets/products/
+static/assets/hercules/
+*.pptx

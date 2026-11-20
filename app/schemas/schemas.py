@@ -78,6 +78,7 @@ class ServiceAreaBase(BaseModel):
     area_name: str
     is_primary: bool = False
     delivery_frequency: str = "Daily"
+    directions_url: Optional[str] = None
     notes: Optional[str] = None
 
 class ServiceAreaRead(ServiceAreaBase):

@@ -91,6 +91,7 @@ class ServiceArea(Base):
     area_name = Column(String(100), unique=True, nullable=False)
     is_primary = Column(Boolean, default=False)
     delivery_frequency = Column(String(100), default="Daily")
+    directions_url = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     verification_status = Column(SQLEnum(VerificationStatus), default=VerificationStatus.VERIFIED)
 
