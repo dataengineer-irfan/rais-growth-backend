@@ -272,3 +272,63 @@ class GoogleStatusResponse(BaseModel):
     scopes_granted: List[str] = []
     message: Optional[str] = None
     actionable_instruction: Optional[str] = None
+
+# ================= YouTube & Google Drive Automation Schemas =================
+class YouTubeQueueItemRead(BaseModel):
+    id: int
+    drive_file_id: Optional[str] = None
+    file_name: str
+    product_sku: Optional[str] = None
+    product_name: Optional[str] = None
+    video_title: str
+    description: str
+    tags: Optional[str] = None
+    status: str
+    scheduled_for: Optional[datetime] = None
+    published_at: Optional[datetime] = None
+    youtube_video_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class YouTubeQueueItemCreate(BaseModel):
+    file_name: str
+    drive_file_id: Optional[str] = None
+    product_sku: Optional[str] = None
+    product_name: Optional[str] = None
+    video_title: str
+    description: str
+    tags: Optional[str] = None
+    scheduled_for: Optional[datetime] = None
+
+class YouTubeDriveSettingRead(BaseModel):
+    id: int
+    folder_id: Optional[str] = None
+    folder_name: str
+    auto_publish_daily: bool
+    daily_publish_hour: int
+    is_connected: bool
+    last_synced_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class YouTubeDriveSettingUpdate(BaseModel):
+    folder_id: Optional[str] = None
+    folder_name: Optional[str] = "RAIS_Daily_Promotion_Videos"
+    auto_publish_daily: Optional[bool] = True
+    daily_publish_hour: Optional[int] = 10
+
+class YouTubeSyncResult(BaseModel):
+    status: str
+    new_videos_found: int
+    total_queued: int
+    message: str
+
+class YouTubePublishResult(BaseModel):
+    status: str
+    video_id: Optional[int] = None
+    youtube_video_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    video_title: Optional[str] = None
+    message: str

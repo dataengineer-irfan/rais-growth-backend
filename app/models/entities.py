@@ -43,6 +43,12 @@ class LeadStatus(str, enum.Enum):
     CONVERTED = "CONVERTED"
     LOST = "LOST"
 
+class YouTubeQueueStatus(str, enum.Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    PUBLISHED = "PUBLISHED"
+    FAILED = "FAILED"
+
 # ==================== Business Info & Catalog Models ====================
 
 class BusinessProfile(Base):
@@ -297,3 +303,34 @@ class AutomationSetting(Base):
     require_explicit_campaign_approval = Column(Boolean, default=True)
     require_explicit_review_approval = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+# ==================== YouTube & Google Drive Automation ====================
+
+class YouTubeQueueItem(Base):
+    __tablename__ = "youtube_queue_items"
+
+    id = Column(Integer, primary_key=True)
+    drive_file_id = Column(String(100), unique=True, index=True)
+    file_name = Column(String(255), nullable=False)
+    product_sku = Column(String(50), nullable=True)
+    product_name = Column(String(200), nullable=True)
+    video_title = Column(String(150), nullable=False)
+    description = Column(Text, nullable=False)
+    tags = Column(String(500), nullable=True)
+    status = Column(SQLEnum(YouTubeQueueStatus), default=YouTubeQueueStatus.QUEUED)
+    scheduled_for = Column(DateTime(timezone=True), nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    youtube_video_id = Column(String(100), nullable=True)
+    youtube_url = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class YouTubeDriveSetting(Base):
+    __tablename__ = "youtube_drive_settings"
+
+    id = Column(Integer, primary_key=True)
+    folder_id = Column(String(100), nullable=True)
+    folder_name = Column(String(150), default="RAIS_Daily_Promotion_Videos")
+    auto_publish_daily = Column(Boolean, default=True)
+    daily_publish_hour = Column(Integer, default=10)  # 10:00 AM IST
+    is_connected = Column(Boolean, default=False)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)

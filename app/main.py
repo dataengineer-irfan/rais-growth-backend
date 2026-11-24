@@ -12,6 +12,7 @@ from app.api.routes_google import router as google_router
 from app.api.routes_seo import router as seo_router
 from app.api.routes_leads import router as leads_router
 from app.api.routes_automation import router as automation_router
+from app.api.routes_youtube import router as youtube_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +51,7 @@ app.include_router(google_router, prefix=settings.API_V1_STR)
 app.include_router(seo_router, prefix=settings.API_V1_STR)
 app.include_router(leads_router, prefix=settings.API_V1_STR)
 app.include_router(automation_router, prefix=settings.API_V1_STR)
+app.include_router(youtube_router, prefix=settings.API_V1_STR)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
