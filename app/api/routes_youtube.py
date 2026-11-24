@@ -94,6 +94,9 @@ INITIAL_PROMO_VIDEOS = [
     }
 ]
 
+DEFAULT_DRIVE_FOLDER_ID = "1Bm_WjSGQb_KQSRz6i08DSsp2mtzOborn"
+DEFAULT_DRIVE_FOLDER_NAME = "RAIS_Daily_Promotion_Videos"
+
 @router.get("/settings", response_model=YouTubeDriveSettingRead)
 async def get_settings(db: AsyncSession = Depends(get_db)):
     """Fetch current Google Drive folder connection and YouTube automation settings."""
@@ -102,13 +105,18 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     setting = res.scalar_one_or_none()
     if not setting:
         setting = YouTubeDriveSetting(
-            folder_id=None,
-            folder_name="RAIS_Daily_Promotion_Videos",
+            folder_id=DEFAULT_DRIVE_FOLDER_ID,
+            folder_name=DEFAULT_DRIVE_FOLDER_NAME,
             auto_publish_daily=True,
             daily_publish_hour=10,
-            is_connected=False
+            is_connected=True
         )
         db.add(setting)
+        await db.commit()
+        await db.refresh(setting)
+    elif not setting.folder_id:
+        setting.folder_id = DEFAULT_DRIVE_FOLDER_ID
+        setting.is_connected = True
         await db.commit()
         await db.refresh(setting)
     return setting
