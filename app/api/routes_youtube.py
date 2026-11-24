@@ -152,37 +152,18 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
 
 @router.get("/queue", response_model=List[YouTubeQueueItemRead])
 async def list_queue(db: AsyncSession = Depends(get_db)):
-    """List all queued and published YouTube videos."""
+    """List all queued and published YouTube videos. Returns empty if no videos uploaded to Drive."""
     stmt = select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc())
     res = await db.execute(stmt)
-    items = list(res.scalars().all())
+    return list(res.scalars().all())
 
-    # Seed initial queue items if table is empty
-    if len(items) == 0:
-        base_time = datetime.datetime.now(datetime.timezone.utc)
-        for idx, pv in enumerate(INITIAL_PROMO_VIDEOS):
-            sched_time = base_time + datetime.timedelta(days=idx, hours=idx * 2)
-            item = YouTubeQueueItem(
-                drive_file_id=f"gdrive_file_{idx+1}",
-                file_name=pv["file_name"],
-                product_sku=pv["product_sku"],
-                product_name=pv["product_name"],
-                video_title=pv["video_title"],
-                description=pv["description"],
-                tags=pv["tags"],
-                status=YouTubeQueueStatus.QUEUED if idx > 0 else YouTubeQueueStatus.PUBLISHED,
-                scheduled_for=sched_time,
-                published_at=base_time if idx == 0 else None,
-                youtube_video_id="dQw4w9WgXcQ" if idx == 0 else None,
-                youtube_url="https://youtube.com/shorts/dQw4w9WgXcQ" if idx == 0 else None
-            )
-            db.add(item)
-        await db.commit()
-        stmt = select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc())
-        res = await db.execute(stmt)
-        items = list(res.scalars().all())
-
-    return items
+@router.delete("/queue/clear")
+async def clear_queue(db: AsyncSession = Depends(get_db)):
+    """Wipes all items from the YouTube queue."""
+    from sqlalchemy import delete
+    await db.execute(delete(YouTubeQueueItem))
+    await db.commit()
+    return {"status": "SUCCESS", "message": "All mock and queued videos cleared. Queue is completely empty."}
 
 @router.post("/sync-drive", response_model=YouTubeSyncResult)
 async def sync_google_drive(db: AsyncSession = Depends(get_db)):
