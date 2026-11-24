@@ -99,6 +99,114 @@ INITIAL_SKUS = [
         "pack_size": "1 KG POUCH",
         "is_commercial_focus": True,
         "description": "Thick, heat-stable commercial mayonnaise for burgers, rolls, and shawarmas."
+    },
+    {
+        "sku": "RAIS-SUD-CRM",
+        "name": "Sudarshan Fresh Cream",
+        "brand": "Sudarshan",
+        "category": "Commercial Dairy & Cheese",
+        "pack_size": "1L POUCH",
+        "is_commercial_focus": True,
+        "description": "Rich dairy culinary fresh cream from Sudarshan for butter chicken gravies, restaurant paneer curries, white sauce pasta, and cafe desserts."
+    },
+    {
+        "sku": "RAIS-HBT-BCORN",
+        "name": "Habit Canned Whole Baby Corn",
+        "brand": "Habit",
+        "category": "Canned Goods & Sauces",
+        "pack_size": "800G TIN",
+        "is_commercial_focus": True,
+        "description": "Crisp tender whole baby corn in brine from Habit. Essential for Chinese wok dishes, pizza toppings, fried rice, and cafe stir-fry."
+    },
+    {
+        "sku": "RAIS-HBT-MUSH",
+        "name": "Habit Canned Button Mushroom",
+        "brand": "Habit",
+        "category": "Canned Goods & Sauces",
+        "pack_size": "800G TIN",
+        "is_commercial_focus": True,
+        "description": "Premium whole button mushrooms in brine from Habit. Ready-to-slice topping for commercial pizzerias, pastas, burger stuffing, and continental dishes."
+    },
+    {
+        "sku": "RAIS-DM-JALA",
+        "name": "Del Monte Sliced Jalapenos",
+        "brand": "Del Monte",
+        "category": "Ketchup & Sauces",
+        "pack_size": "3KG TIN",
+        "is_commercial_focus": True,
+        "description": "Spicy tangy sliced pickled jalapeños from Del Monte for commercial pizza kitchens, loaded nachos, submarine sandwiches, and cafe burgers."
+    },
+    {
+        "sku": "RAIS-MT-SOYA",
+        "name": "Meal Time Dark Soya Sauce",
+        "brand": "Meal Time",
+        "category": "Ketchup & Sauces",
+        "pack_size": "1KG BOTTLE",
+        "is_commercial_focus": True,
+        "description": "Rich dark color and savory umami profile from Meal Time for authentic Indo-Chinese fried rice, noodles, and manchurian gravy."
+    },
+    {
+        "sku": "RAIS-MT-RCHIL",
+        "name": "Meal Time Red Chilli Sauce",
+        "brand": "Meal Time",
+        "category": "Ketchup & Sauces",
+        "pack_size": "1KG BOTTLE",
+        "is_commercial_focus": True,
+        "description": "Sharp tangy and spicy red chilli condiment from Meal Time for street fast food counters, momo dips, wraps, and rolls."
+    },
+    {
+        "sku": "RAIS-MT-GCHIL",
+        "name": "Meal Time Green Chilli Sauce",
+        "brand": "Meal Time",
+        "category": "Ketchup & Sauces",
+        "pack_size": "1KG BOTTLE",
+        "is_commercial_focus": True,
+        "description": "Zesty green pepper sauce from Meal Time for Indo-Chinese cooking, chaat counters, and snack seasoning."
+    },
+    {
+        "sku": "RAIS-SPC-CULN",
+        "name": "Spic's Culinary Sauce",
+        "brand": "Spic's",
+        "category": "Ketchup & Sauces",
+        "pack_size": "1KG POUCH",
+        "is_commercial_focus": True,
+        "description": "Chef-grade finishing culinary sauce from Spic's for sizzling platters, continental kitchen marinades, and cafe gravies."
+    },
+    {
+        "sku": "RAIS-SPC-HCHIL",
+        "name": "Spic's Hot Chilli Sauce",
+        "brand": "Spic's",
+        "category": "Ketchup & Sauces",
+        "pack_size": "5KG JAR",
+        "is_commercial_focus": True,
+        "description": "Extra pungent bulk commercial hot chilli sauce from Spic's for Indo-Chinese wok cooking, fast food noodles, and dipping counters."
+    },
+    {
+        "sku": "RAIS-MT-VNGR",
+        "name": "Commercial Synthetic White Vinegar",
+        "brand": "Meal Time / Foodrite",
+        "category": "Ketchup & Sauces",
+        "pack_size": "1L BOTTLE",
+        "is_commercial_focus": True,
+        "description": "High purity commercial synthetic white vinegar for Chinese fast food marinations, noodles, manchurian gravies, and pickling."
+    },
+    {
+        "sku": "RAIS-DM-CHOC",
+        "name": "Del Monte Rich Chocolate Syrup",
+        "brand": "Del Monte",
+        "category": "Syrups & Beverages",
+        "pack_size": "1KG SQUEEZE BOTTLE",
+        "is_commercial_focus": True,
+        "description": "Smooth decadent rich chocolate syrup from Del Monte for cafe cold coffees, thick milkshakes, sundae ice creams, and waffle toppings."
+    },
+    {
+        "sku": "RAIS-FC-CHOC",
+        "name": "Foodcraft Commercial Chocolate Syrup",
+        "brand": "Foodcraft",
+        "category": "Syrups & Beverages",
+        "pack_size": "1KG BOTTLE",
+        "is_commercial_focus": True,
+        "description": "High-yield commercial chocolate syrup from Foodcraft for juice centers, bakery cake drizzles, and thick shake preparation."
     }
 ]
 
@@ -305,14 +413,22 @@ INITIAL_30_DAYS = [
 
 INITIAL_KEYWORDS = [
     {"keyword": "frozen food wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 98, "language": "en"},
+    {"keyword": "sudarshan fresh cream wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 96, "language": "en"},
+    {"keyword": "habit baby corn button mushroom wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 95, "language": "en"},
     {"keyword": "french fries wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 95, "language": "en"},
     {"keyword": "milky mist cheese wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 94, "language": "en"},
+    {"keyword": "meal time dark soya sauce red chilli sauce rayachoty", "intent": "Commercial B2B", "relevance_score": 94, "language": "en"},
+    {"keyword": "sliced jalapenos wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 93, "language": "en"},
+    {"keyword": "delmonte foodcraft chocolate syrup rayachoty", "intent": "Commercial B2B", "relevance_score": 92, "language": "en"},
     {"keyword": "mozzarella cheese supplier rayachoty", "intent": "Commercial B2B", "relevance_score": 92, "language": "en"},
+    {"keyword": "green chilli sauce culinary sauce wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 91, "language": "en"},
     {"keyword": "butter paper wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 90, "language": "en"},
+    {"keyword": "spic culinary sauce distributor rayachoty", "intent": "Commercial B2B", "relevance_score": 90, "language": "en"},
+    {"keyword": "rayachoti frozen foods agency", "intent": "Local Direct", "relevance_score": 89, "language": "te-en"},
     {"keyword": "pizza base wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 88, "language": "en"},
+    {"keyword": "commercial white vinegar wholesale rayachoty", "intent": "Commercial B2B", "relevance_score": 88, "language": "en"},
     {"keyword": "restaurant supplies rayachoty", "intent": "Commercial B2B", "relevance_score": 85, "language": "en"},
     {"keyword": "chicken nuggets bulk rayachoty", "intent": "Commercial B2B", "relevance_score": 84, "language": "en"},
-    {"keyword": "rayachoti frozen foods agency", "intent": "Local Direct", "relevance_score": 89, "language": "te-en"},
     {"keyword": "butter paper kilo rate rayachoty", "intent": "Commercial B2B", "relevance_score": 82, "language": "te-en"}
 ]
 

@@ -10,7 +10,28 @@ router = APIRouter(prefix="/seo", tags=["Local SEO & Competitor Intelligence"])
 
 @router.get("/keywords", response_model=List[KeywordTargetRead])
 async def list_keywords(db: AsyncSession = Depends(get_db)):
-    """List targeted local search keywords for Rayachoty and surrounding areas."""
+    """List targeted local search keywords for Rayachoty and surrounding areas, dynamically syncing all 18 commercial keywords."""
+    from app.seed_data.seed import INITIAL_KEYWORDS
+    stmt = select(KeywordTarget)
+    res = await db.execute(stmt)
+    existing_keywords = {k.keyword: k for k in res.scalars().all()}
+
+    has_changes = False
+    for kw_data in INITIAL_KEYWORDS:
+        if kw_data["keyword"] not in existing_keywords:
+            new_kw = KeywordTarget(
+                keyword=kw_data["keyword"],
+                intent=kw_data.get("intent", "Commercial B2B"),
+                relevance_score=kw_data.get("relevance_score", 90),
+                is_target=True,
+                language=kw_data.get("language", "en")
+            )
+            db.add(new_kw)
+            has_changes = True
+
+    if has_changes:
+        await db.commit()
+
     stmt = select(KeywordTarget).order_by(KeywordTarget.relevance_score.desc())
     res = await db.execute(stmt)
     return res.scalars().all()
