@@ -42,9 +42,18 @@ class VideoAIService:
     and builds viral hook titles, bilingual Telugu+English captions, hashtags, and pinned first comments.
     """
 
-    GEMINI_ENDPOINT = (
+    GEMINI_ENDPOINT_TEMPLATE = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.5-flash:generateContent"
+        "{model}:generateContent"
+    )
+    GEMINI_MODELS = (
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-flash-latest",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
     )
     MAX_INLINE_BYTES = 19 * 1024 * 1024  # Safe under 20MB inline Gemini limit
 
@@ -221,24 +230,30 @@ class VideoAIService:
         }
 
         async def _call(http: httpx.AsyncClient) -> Dict[str, Any]:
-            resp = await http.post(
-                cls.GEMINI_ENDPOINT,
-                params={"key": gemini_api_key},
-                json=body,
-            )
-            if resp.status_code != 200:
-                raise ValueError(f"Gemini error {resp.status_code}: {resp.text[:200]}")
-            data = resp.json()
-            text = (
-                data.get("candidates", [{}])[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text", "{}")
-            )
-            parsed = json.loads(text)
-            if isinstance(parsed, list) and parsed:
-                parsed = parsed[0]
-            return cls._sanitize_ai_result(parsed if isinstance(parsed, dict) else {}, file_name, drive_description)
+            last_err = ""
+            for model in cls.GEMINI_MODELS:
+                url = cls.GEMINI_ENDPOINT_TEMPLATE.format(model=model)
+                resp = await http.post(url, params={"key": gemini_api_key}, json=body)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = (
+                        data.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "{}")
+                    )
+                    parsed = json.loads(text)
+                    if isinstance(parsed, list) and parsed:
+                        parsed = parsed[0]
+                    return cls._sanitize_ai_result(
+                        parsed if isinstance(parsed, dict) else {},
+                        file_name,
+                        drive_description,
+                    )
+                last_err = f"{model} ({resp.status_code}): {resp.text[:160]}"
+                if resp.status_code not in (404, 429, 500, 502, 503, 504):
+                    break
+            raise ValueError(f"All Gemini Video Vision models unavailable: {last_err}")
 
         try:
             if client is not None:
