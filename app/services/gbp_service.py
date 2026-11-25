@@ -96,21 +96,56 @@ class GBPService:
                 conn = res.scalar_one_or_none()
                 if conn:
                     if conn.is_connected:
+                        valid_token = await self.get_valid_access_token(db=db, conn=conn)
+                        if valid_token:
+                            return {
+                                "status": "CONNECTED",
+                                "connected": True,
+                                "mode": "LIVE_CONNECTED",
+                                "is_verified": True,
+                                "is_live": True,
+                                "is_simulated": False,
+                                "account_id": conn.account_id,
+                                "location_id": conn.location_id,
+                                "account_email": conn.account_email,
+                                "location_name": conn.location_name or settings.VERIFIED_BUSINESS_NAME,
+                                "primary_category": "Wholesale food store",
+                                "scopes_granted": conn.scopes_granted.split() if conn.scopes_granted and " " in conn.scopes_granted else (conn.scopes_granted.split(",") if conn.scopes_granted else self.required_scopes),
+                                "message": "Connected to official Google Business Profile API.",
+                                "actionable_instruction": "Profile is active and authenticated with Google."
+                            }
+                        if not conn.encrypted_refresh_token and not conn.encrypted_access_token:
+                            return {
+                                "status": "NOT_CONNECTED",
+                                "connected": False,
+                                "mode": "AUTHORIZATION_PENDING",
+                                "is_verified": False,
+                                "is_live": False,
+                                "is_simulated": False,
+                                "account_id": None,
+                                "location_id": None,
+                                "account_email": None,
+                                "location_name": None,
+                                "primary_category": None,
+                                "scopes_granted": [],
+                                "message": "Google OAuth authorization required. Legacy placeholder cleared.",
+                                "actionable_instruction": "Click 'Connect Google' to complete official OAuth authorization."
+                            }
                         return {
-                            "status": "CONNECTED",
-                            "connected": True,
-                            "mode": "LIVE_CONNECTED",
-                            "is_verified": True,
-                            "is_live": True,
+                            "status": "API_ERROR",
+                            "connected": False,
+                            "mode": "TOKEN_REVOKED",
+                            "is_verified": False,
+                            "is_live": False,
                             "is_simulated": False,
-                            "account_id": conn.account_id or "accounts/106201059585451801696",
-                            "location_id": conn.location_id or "locations/17901714523973178723",
-                            "account_email": conn.account_email or "basha.shaikirfan@gmail.com",
-                            "location_name": conn.location_name or settings.VERIFIED_BUSINESS_NAME,
-                            "primary_category": "Wholesale food store",
-                            "scopes_granted": conn.scopes_granted.split(",") if conn.scopes_granted else self.required_scopes,
-                            "message": "Connected to official Google Business Profile API.",
-                            "actionable_instruction": "Profile is active and authenticated with Google."
+                            "account_id": None,
+                            "location_id": None,
+                            "account_email": None,
+                            "location_name": None,
+                            "primary_category": None,
+                            "scopes_granted": [],
+                            "message": "Google OAuth authorization expired or was revoked. Re-authorization required.",
+                            "actionable_instruction": "Click 'Connect Google' to re-authenticate."
                         }
                     elif conn.encrypted_refresh_token or conn.encrypted_access_token:
                         # Check if credentials/tokens exist but API access is unapproved
@@ -168,7 +203,7 @@ class GBPService:
             "actionable_instruction": "Complete OAuth flow via /api/v1/google/authorize."
         }
 
-    async def generate_authorization_url(self, db: AsyncSession) -> Dict[str, str]:
+    async def generate_authorization_url(self, db: AsyncSession, include_youtube: bool = False) -> Dict[str, str]:
         """
         Generates Google OAuth 2.0 authorization URL using configured credentials and CSRF state.
         Never generates URL if credentials are not configured.
@@ -188,11 +223,18 @@ class GBPService:
         db.add(oauth_state)
         await db.commit()
 
+        scopes = list(self.required_scopes)
+        if include_youtube:
+            scopes.extend([
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/youtube.upload"
+            ])
+
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
             "redirect_uri": settings.GOOGLE_REDIRECT_URI,
             "response_type": "code",
-            "scope": " ".join(self.required_scopes),
+            "scope": " ".join(scopes),
             "access_type": "offline",
             "prompt": "consent",
             "state": state
@@ -305,6 +347,13 @@ class GBPService:
         if not conn or not conn.encrypted_access_token or not conn.is_connected:
             return None
 
+        plain_access = decrypt_token(conn.encrypted_access_token)
+        if plain_access and plain_access.startswith("ya29.live_authorized_persisted"):
+            conn.is_connected = False
+            conn.encrypted_access_token = None
+            await db.commit()
+            return None
+
         now = datetime.now(timezone.utc)
         token_exp = to_utc(conn.token_expiry)
         needs_refresh = token_exp is None or token_exp <= now + timedelta(seconds=60)
@@ -336,7 +385,7 @@ class GBPService:
                 await db.commit()
                 return None
 
-        return decrypt_token(conn.encrypted_access_token)
+        return plain_access
 
     async def fetch_google_account_and_locations(
         self,
@@ -628,61 +677,51 @@ class GBPService:
             stmt = select(GoogleConnection).order_by(GoogleConnection.id.desc()).limit(1)
             res = await db.execute(stmt)
             conn = res.scalar_one_or_none()
-            if not conn or not conn.account_id:
-                raise ValueError("No authenticated Google connection found.")
+            token = await self.get_valid_access_token(db)
+            if not conn or not conn.account_id or not token:
+                raise ValueError("Cannot publish to Google Business Profile: valid Google OAuth authorization is required.")
 
             target_account = conn.account_id if conn.account_id.startswith("accounts/") else f"accounts/{conn.account_id}"
             target_location = (location_id or conn.location_id)
+            if not target_location:
+                raise ValueError("No verified Google Business location ID found.")
             target_location = target_location if target_location.startswith("locations/") else f"locations/{target_location}"
 
             post_id = f"local-post-{uuid.uuid4().hex[:8]}"
-            token = await self.get_valid_access_token(db)
-            if token and not token.startswith("ya29.live_authorized_persisted"):
-                try:
-                    url = f"https://mybusiness.googleapis.com/v4/{target_account}/{target_location}/localPosts"
-                    headers = {
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    }
-                    body = {
-                        "languageCode": "en-IN",
-                        "summary": post_data.get("summary"),
-                        "callToAction": {
-                            "actionType": post_data.get("call_to_action", "CALL"),
-                            "url": post_data.get("cta_url", f"https://wa.me/91{settings.VERIFIED_PHONE}")
-                        },
-                        "topicType": "STANDARD"
-                    }
-                    async with httpx.AsyncClient(timeout=15.0) as client:
-                        resp = await client.post(url, headers=headers, json=body)
-                        if resp.status_code in (200, 201):
-                            data = resp.json()
-                            return {
-                                "name": data.get("name", f"{target_location}/localPosts/{post_id}"),
-                                "language_code": "en-IN",
-                                "summary": post_data.get("summary"),
-                                "call_to_action": post_data.get("call_to_action", "CALL"),
-                                "state": "LIVE",
-                                "is_published_to_google": True,
-                                "is_simulated": False,
-                                "create_time": datetime.now(timezone.utc).isoformat(),
-                                "notice": "LIVE: Successfully published to Google Business Profile."
-                            }
-                except Exception:
-                    pass
-
-            # Authorized Google LocalPost registered to profile
-            return {
-                "name": f"{target_location}/localPosts/{post_id}",
-                "language_code": "en-IN",
-                "summary": post_data.get("summary"),
-                "call_to_action": post_data.get("call_to_action", "CALL"),
-                "state": "LIVE",
-                "is_published_to_google": True,
-                "is_simulated": False,
-                "create_time": datetime.now(timezone.utc).isoformat(),
-                "notice": "LIVE: Published and recorded to Google Business Profile feed."
+            url = f"https://mybusiness.googleapis.com/v4/{target_account}/{target_location}/localPosts"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
             }
+            body = {
+                "languageCode": "en-IN",
+                "summary": post_data.get("summary"),
+                "callToAction": {
+                    "actionType": post_data.get("call_to_action", "CALL"),
+                    "url": post_data.get("cta_url", f"https://wa.me/91{settings.VERIFIED_PHONE}")
+                },
+                "topicType": "STANDARD"
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    return {
+                        "name": data.get("name", f"{target_location}/localPosts/{post_id}"),
+                        "language_code": "en-IN",
+                        "summary": post_data.get("summary"),
+                        "call_to_action": post_data.get("call_to_action", "CALL"),
+                        "state": "LIVE",
+                        "is_published_to_google": True,
+                        "is_simulated": False,
+                        "create_time": datetime.now(timezone.utc).isoformat(),
+                        "notice": "LIVE: Successfully published to Google Business Profile."
+                    }
+                try:
+                    err_msg = resp.json().get("error", {}).get("message") or f"HTTP {resp.status_code}"
+                except Exception:
+                    err_msg = f"HTTP {resp.status_code}"
+                raise ValueError(f"Google Business Profile API rejected LocalPost ({resp.status_code}): {err_msg}")
 
         raise NotImplementedError("Live Google API credentials not authorized. Cannot publish to Google.")
 
@@ -929,49 +968,200 @@ class GBPService:
                 "actionable_instruction": "Configure GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET in backend/.env and authenticate to view live Google metrics."
             }
 
-        # In real mode: check authenticated connection via authoritative connection status
-        conn_status = await self.get_connection_status(db=db)
-        if conn_status.get("connected") or conn_status.get("status") == "CONNECTED":
-            loc_name = conn_status.get("location_name") or "RAIS Agencies"
-            location_id = conn_status.get("location_id") or "locations/17901714523973178723"
+        # In real mode: verify real OAuth access token and query official Google Performance API
+        if db is None:
             return {
-                "status": "LIVE_DATA_AVAILABLE",
-                "is_live": True,
+                "status": "NOT_CONNECTED",
+                "is_live": False,
                 "is_simulated": False,
-                "source": "Google Business Profile Performance API (Authenticated Live)",
+                "source": "None (No DB Session)",
                 "date_range": "Past 30 Days",
-                "metrics": {
-                    "search_impressions_mobile": 140,
-                    "search_impressions_desktop": 35,
-                    "maps_impressions_mobile": 210,
-                    "maps_impressions_desktop": 25,
-                    "website_clicks": 42,
-                    "call_clicks": 18,
-                    "direction_requests": 22,
-                    "total_interactions": 82
-                },
-                "search_keywords_top": [
-                    {"term": "frozen food rayachoty", "impressions": 85},
-                    {"term": "mozzarella cheese wholesale", "impressions": 55},
-                    {"term": "french fries wholesale rayachoti", "impressions": 40},
-                    {"term": "burger patties rayachoti", "impressions": 30}
-                ],
+                "metrics": None,
+                "search_keywords_top": [],
                 "error_message": None,
-                "notice": f"LIVE DATA: Authenticated official Google Business Profile Performance API metrics for {loc_name} ({location_id}).",
-                "actionable_instruction": "Live telemetry synchronizing with Google Maps."
+                "notice": "Pending OAuth authorization.",
+                "actionable_instruction": "Authorize Google account."
             }
 
-        return {
-            "status": "NOT_CONNECTED",
-            "is_live": False,
-            "is_simulated": False,
-            "source": "None (Pending Authentication)",
-            "date_range": "Past 30 Days",
-            "metrics": None,
-            "search_keywords_top": [],
-            "error_message": None,
-            "notice": "PENDING AUTH: Credentials found, but user has not completed OAuth authorization.",
-            "actionable_instruction": "Log in with authorized Google account."
-        }
+        token = await self.get_valid_access_token(db=db)
+        if not token:
+            return {
+                "status": "NOT_CONNECTED",
+                "is_live": False,
+                "is_simulated": False,
+                "source": "None (Pending Authentication)",
+                "date_range": "Past 30 Days",
+                "metrics": None,
+                "search_keywords_top": [],
+                "error_message": None,
+                "notice": "PENDING AUTH: Credentials found, but user has not completed valid OAuth authorization.",
+                "actionable_instruction": "Click 'Connect Google' to authorize Google Business Profile access."
+            }
+
+        stmt = select(GoogleConnection).order_by(GoogleConnection.id.desc()).limit(1)
+        res = await db.execute(stmt)
+        conn = res.scalar_one_or_none()
+        target_loc = location_id or (conn.location_id if conn else None)
+        if not target_loc:
+            return {
+                "status": "NOT_CONNECTED",
+                "is_live": False,
+                "is_simulated": False,
+                "source": "None (No Location Linked)",
+                "date_range": "Past 30 Days",
+                "metrics": None,
+                "search_keywords_top": [],
+                "error_message": None,
+                "notice": "Google OAuth succeeded, but no verified Business Profile location ID is attached.",
+                "actionable_instruction": "Re-authorize Google account owning the RAIS Agencies listing."
+            }
+
+        loc_clean = target_loc if target_loc.startswith("locations/") else f"locations/{target_loc}"
+        end_dt = datetime.now(timezone.utc).date() - timedelta(days=2)
+        start_dt = end_dt - timedelta(days=29)
+
+        metric_params: List[tuple] = [
+            ("dailyMetrics", "BUSINESS_IMPRESSIONS_DESKTOP_MAPS"),
+            ("dailyMetrics", "BUSINESS_IMPRESSIONS_MOBILE_MAPS"),
+            ("dailyMetrics", "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"),
+            ("dailyMetrics", "BUSINESS_IMPRESSIONS_MOBILE_SEARCH"),
+            ("dailyMetrics", "CALL_CLICKS"),
+            ("dailyMetrics", "WEBSITE_CLICKS"),
+            ("dailyMetrics", "BUSINESS_DIRECTION_REQUESTS"),
+            ("dailyRange.startDate.year", str(start_dt.year)),
+            ("dailyRange.startDate.month", str(start_dt.month)),
+            ("dailyRange.startDate.day", str(start_dt.day)),
+            ("dailyRange.endDate.year", str(end_dt.year)),
+            ("dailyRange.endDate.month", str(end_dt.month)),
+            ("dailyRange.endDate.day", str(end_dt.day)),
+        ]
+
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                perf_resp = await client.get(
+                    f"{self.performance_url}/{loc_clean}:fetchMultiDailyMetricsTimeSeries",
+                    headers=headers,
+                    params=metric_params
+                )
+
+                if perf_resp.status_code in (401, 403):
+                    try:
+                        err_msg = perf_resp.json().get("error", {}).get("message") or f"HTTP {perf_resp.status_code}"
+                    except Exception:
+                        err_msg = f"HTTP {perf_resp.status_code}"
+                    return {
+                        "status": "API_ACCESS_NOT_APPROVED" if perf_resp.status_code == 403 else "API_ERROR",
+                        "is_live": False,
+                        "is_simulated": False,
+                        "source": "Google Business Profile Performance API",
+                        "date_range": "Past 30 Days",
+                        "metrics": None,
+                        "search_keywords_top": [],
+                        "error_message": err_msg,
+                        "notice": f"Google Performance API returned {perf_resp.status_code}: {err_msg}",
+                        "actionable_instruction": "Enable 'Business Profile Performance API' in Google Cloud Console and ensure GBP API access is approved."
+                    }
+
+                if perf_resp.status_code != 200:
+                    return {
+                        "status": "API_ERROR",
+                        "is_live": False,
+                        "is_simulated": False,
+                        "source": "Google Business Profile Performance API",
+                        "date_range": "Past 30 Days",
+                        "metrics": None,
+                        "search_keywords_top": [],
+                        "error_message": f"HTTP {perf_resp.status_code} from Google Performance API",
+                        "notice": "Failed to retrieve telemetry from Google Performance API.",
+                        "actionable_instruction": "Retry in a few moments or check Google Cloud quota."
+                    }
+
+                perf_json = perf_resp.json()
+                totals: Dict[str, int] = {}
+                for multi_item in perf_json.get("multiDailyMetricTimeSeries", []):
+                    for ts_item in multi_item.get("dailyMetricTimeSeries", []):
+                        metric_key = ts_item.get("dailyMetric")
+                        dated = ts_item.get("timeSeries", {}).get("datedValues", [])
+                        totals[metric_key] = sum(int(dv.get("value", 0) or 0) for dv in dated)
+
+                search_mob = totals.get("BUSINESS_IMPRESSIONS_MOBILE_SEARCH", 0)
+                search_desk = totals.get("BUSINESS_IMPRESSIONS_DESKTOP_SEARCH", 0)
+                maps_mob = totals.get("BUSINESS_IMPRESSIONS_MOBILE_MAPS", 0)
+                maps_desk = totals.get("BUSINESS_IMPRESSIONS_DESKTOP_MAPS", 0)
+                web_clicks = totals.get("WEBSITE_CLICKS", 0)
+                calls = totals.get("CALL_CLICKS", 0)
+                dirs = totals.get("BUSINESS_DIRECTION_REQUESTS", 0)
+                interactions = web_clicks + calls + dirs
+
+                # Fetch top monthly search keywords (best-effort)
+                top_keywords: List[Dict[str, Any]] = []
+                try:
+                    kw_params = {
+                        "monthlyRange.startMonth.year": str(start_dt.year),
+                        "monthlyRange.startMonth.month": str(start_dt.month),
+                        "monthlyRange.endMonth.year": str(end_dt.year),
+                        "monthlyRange.endMonth.month": str(end_dt.month),
+                        "pageSize": "10"
+                    }
+                    kw_resp = await client.get(
+                        f"{self.performance_url}/{loc_clean}/searchkeywords/impressions/monthly",
+                        headers=headers,
+                        params=kw_params
+                    )
+                    if kw_resp.status_code == 200:
+                        for item in kw_resp.json().get("searchKeywordsCounts", []):
+                            kw = item.get("searchKeyword")
+                            val_obj = item.get("insightsValue", {})
+                            cnt = int(val_obj.get("value") or val_obj.get("threshold") or 0)
+                            if kw:
+                                top_keywords.append({"term": kw, "impressions": cnt})
+                        top_keywords.sort(key=lambda x: x["impressions"], reverse=True)
+                except Exception:
+                    pass
+
+                total_all = search_mob + search_desk + maps_mob + maps_desk + interactions
+                metrics_dict = {
+                    "search_impressions_mobile": search_mob,
+                    "search_impressions_desktop": search_desk,
+                    "maps_impressions_mobile": maps_mob,
+                    "maps_impressions_desktop": maps_desk,
+                    "website_clicks": web_clicks,
+                    "call_clicks": calls,
+                    "direction_requests": dirs,
+                    "total_interactions": interactions
+                }
+                loc_name = (conn.location_name if conn else None) or "RAIS Agencies"
+                return {
+                    "status": "CONNECTED_BUT_NO_DATA" if total_all == 0 else "LIVE_DATA_AVAILABLE",
+                    "is_live": True,
+                    "api_verified": True,
+                    "is_simulated": False,
+                    "source": "Google Business Profile Performance API (Authenticated Live)",
+                    "date_range": f"{start_dt.isoformat()} to {end_dt.isoformat()}",
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "metrics": metrics_dict,
+                    "search_keywords_top": top_keywords[:8],
+                    "error_message": None,
+                    "notice": (
+                        "CONNECTED (NO DATA): Authenticated Google API returned zero customer interactions for this 30-day window."
+                        if total_all == 0
+                        else f"LIVE DATA: Verified metrics from Google Business Profile Performance API for {loc_name} ({loc_clean})."
+                    ),
+                    "actionable_instruction": "Live telemetry fetched directly from Google."
+                }
+        except Exception as e:
+            return {
+                "status": "API_ERROR",
+                "is_live": False,
+                "is_simulated": False,
+                "source": "Google Business Profile Performance API",
+                "date_range": "Past 30 Days",
+                "metrics": None,
+                "search_keywords_top": [],
+                "error_message": str(e),
+                "notice": f"Error querying Google Performance API: {e}",
+                "actionable_instruction": "Verify network connectivity and Google OAuth permissions."
+            }
 
 gbp_service = GBPService()

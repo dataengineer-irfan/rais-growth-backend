@@ -1,19 +1,20 @@
 import datetime
-import urllib.parse
-from typing import List, Optional
+import json
+from typing import List, Optional, Tuple
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from app.core.database import get_db
-from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus
+from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus, GoogleConnection
 from app.schemas.schemas import (
     YouTubeQueueItemRead,
-    YouTubeQueueItemCreate,
     YouTubeDriveSettingRead,
     YouTubeDriveSettingUpdate,
     YouTubeSyncResult,
     YouTubePublishResult
 )
+from app.services.gbp_service import gbp_service
 
 router = APIRouter(prefix="/youtube", tags=["YouTube & Google Drive Automation"])
 
@@ -21,95 +22,69 @@ DEPOT_PHONE = "9347453135"
 DEPOT_ADDRESS = "Beside Indel Money Bank, Sundupalli Road, Near Reddies Colony, Rayachoty – 516269, Annamayya District, Andhra Pradesh"
 CORRIDORS = "Rayachoty, Sundupalli, Galiveedu, Kadiri, Chinnamandem, Kalakada, Mahal, Madanapalle, Kadapa, and Rajampet"
 
-INITIAL_PROMO_VIDEOS = [
-    {
-        "file_name": "Meal_Time_Dark_Soya_and_Green_Chilli_5kg.mp4",
-        "product_sku": "SAUCES-025",
-        "product_name": "Meal Time Dark Soya & Green Chilli Sauce (5kg)",
-        "video_title": "Meal Time Dark Soya & Green Chilli Sauce 5kg Bulk Depot | RAIS Agencies Rayachoty",
-        "description": (
-            f"Commercial 5kg bulk cans of Meal Time Dark Soya Sauce & Green Chilli Sauce for fast food kitchens, "
-            f"fried rice, noodles, and manchurian counters in Rayachoty and nearby corridors.\n\n"
-            f"📍 Depot: {DEPOT_ADDRESS}\n"
-            f"📞 WhatsApp Wholesale Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+Meal+Time+5kg+sauces\n"
-            f"🚚 Scheduled Route Logistics: {CORRIDORS}"
-        ),
-        "tags": "Rayachoty,MealTime,DarkSoyaSauce,GreenChilliSauce,RestaurantSupplies,FastFoodWholesale,Shorts"
-    },
-    {
-        "file_name": "Milky_Mist_Mozzarella_Cheese_1kg.mp4",
-        "product_sku": "DAIRY-004",
-        "product_name": "Milky Mist Diced Mozzarella (1kg & 2kg)",
-        "video_title": "High-Stretch Milky Mist Mozzarella Cheese for Rayachoty Pizza Cafes 🍕 | RAIS Agencies",
-        "description": (
-            f"Fresh -18°C cold-chain Milky Mist diced mozzarella cheese for pizzerias, cafes, and bakeries. "
-            f"Superior melt, golden browning, and maximum stretch at bulk depot rates.\n\n"
-            f"📍 Depot: {DEPOT_ADDRESS}\n"
-            f"📞 WhatsApp Trade Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+Milky+Mist+Mozzarella\n"
-            f"🚚 Delivery Routes: {CORRIDORS}"
-        ),
-        "tags": "MilkyMist,MozzarellaCheese,PizzaSupplies,Rayachoty,ColdChainWholesale,Shorts"
-    },
-    {
-        "file_name": "Del_Monte_Sliced_Jalapenos_3kg.mp4",
-        "product_sku": "SAUCES-010",
-        "product_name": "Del Monte Sliced Jalapeños (3kg Tin)",
-        "video_title": "Del Monte Sliced Pickled Jalapeños for Pizza & Burger Counters | RAIS Agencies",
-        "description": (
-            f"Crispy, spicy, and tangy Del Monte sliced pickled jalapeños in commercial 3kg tins. "
-            f"Ready stock for loaded nachos, gourmet burgers, submarine sandwiches, and pizza toppings in Rayachoty.\n\n"
-            f"📍 Depot: {DEPOT_ADDRESS}\n"
-            f"📞 WhatsApp Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+Del+Monte+Jalapenos\n"
-            f"🚚 Delivery Routes: {CORRIDORS}"
-        ),
-        "tags": "DelMonte,SlicedJalapenos,PizzaToppings,BurgerSupplies,RayachotyWholesale,Shorts"
-    },
-    {
-        "file_name": "Golden_Crown_Panko_Bread_Crumbs_1kg.mp4",
-        "product_sku": "SAUCES-024",
-        "product_name": "Golden Crown Panko Bread Crumbs (1kg)",
-        "video_title": "Original Japanese Panko Bread Crumbs for Crispy Fried Chicken | RAIS Agencies Rayachoty",
-        "description": (
-            f"Golden Crown Japanese style flaky panko bread crumbs for crunchy fried chicken, nuggets, and paneer cutlets. "
-            f"Stays ultra-crisp longer without absorbing excess oil.\n\n"
-            f"📍 Depot: {DEPOT_ADDRESS}\n"
-            f"📞 WhatsApp Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+Panko+Breadcrumbs\n"
-            f"🚚 Delivery Routes: {CORRIDORS}"
-        ),
-        "tags": "GoldenCrown,PankoBreadCrumbs,FriedChicken,QSRSupplies,Rayachoty,Shorts"
-    },
-    {
-        "file_name": "Sudarshan_Fresh_Cream_1L.mp4",
-        "product_sku": "DAIRY-009",
-        "product_name": "Sudarshan Dairy Fresh Cream (1L)",
-        "video_title": "Rich Sudarshan Dairy Fresh Cream for Restaurant Curries & Pastas | RAIS Agencies",
-        "description": (
-            f"Premium rich dairy fresh cream from Sudarshan for butter chicken gravies, restaurant paneer curries, "
-            f"white sauce pastas, and cafe milkshakes. Certified refrigerated delivery across Annamayya District.\n\n"
-            f"📍 Depot: {DEPOT_ADDRESS}\n"
-            f"📞 WhatsApp Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+Sudarshan+Fresh+Cream\n"
-            f"🚚 Delivery Routes: {CORRIDORS}"
-        ),
-        "tags": "Sudarshan,FreshCream,DairyWholesale,Rayachoty,RestaurantSupplies,Shorts"
-    }
-]
-
 DEFAULT_DRIVE_FOLDER_ID = "1Bm_WjSGQb_KQSRz6i08DSsp2mtzOborn"
 DEFAULT_DRIVE_FOLDER_NAME = "RAIS_Daily_Promotion_Videos"
 
+
+def _infer_product_metadata(file_name: str) -> Tuple[str, str, str, str, str]:
+    """Derives commercial B2B YouTube metadata cleanly from a Drive video filename."""
+    clean_base = file_name.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
+    lower = clean_base.lower()
+
+    if "mozzarella" in lower or "milky" in lower:
+        sku, prod = "DAIRY-004", "Milky Mist Diced Mozzarella (1kg & 2kg)"
+    elif "soya" in lower or "meal time" in lower:
+        sku, prod = "SAUCES-025", "Meal Time Dark Soya & Chilli Sauces"
+    elif "jalapeno" in lower or "jalape" in lower:
+        sku, prod = "SAUCES-010", "Del Monte Sliced Jalapeños (3kg Tin)"
+    elif "panko" in lower:
+        sku, prod = "SAUCES-024", "Golden Crown Panko Bread Crumbs (1kg)"
+    elif "cream" in lower or "sudarshan" in lower:
+        sku, prod = "DAIRY-009", "Sudarshan Dairy Fresh Cream (1L)"
+    elif "fries" in lower or "potato" in lower:
+        sku, prod = "VEG-001", "Commercial French Fries (6mm / 9mm)"
+    elif "momo" in lower:
+        sku, prod = "NONVEG-001", "Triken Frozen Momos (Chicken / Veg)"
+    elif "butter paper" in lower or "ogr" in lower or "pizza box" in lower:
+        sku, prod = "PACKAGING-001", "40 GSM OGR Butter Paper & Pizza Boxes"
+    else:
+        sku, prod = "RAIS-B2B", clean_base
+
+    title = f"{clean_base} | RAIS Agencies Rayachoty Wholesale"[:100]
+    desc = (
+        f"Wholesale commercial supply of {prod} for cafes, pizzerias, bakeries & QSR kitchens in Rayachoty and Annamayya District.\n\n"
+        f"Depot: {DEPOT_ADDRESS}\n"
+        f"WhatsApp Trade Order: https://wa.me/91{DEPOT_PHONE}?text=Hi+RAIS+Agencies,+interested+in+{sku}\n"
+        f"Routes: {CORRIDORS}"
+    )
+    tags = "RAISAgencies,Rayachoty,FrozenFoodWholesale,CafeSupplies,RestaurantSupplies,Shorts"
+    return sku, prod, title, desc, tags
+
+
+async def _get_drive_youtube_token(db: AsyncSession) -> Tuple[Optional[str], bool]:
+    """Returns (valid_access_token, has_drive_and_youtube_scopes)."""
+    token = await gbp_service.get_valid_access_token(db)
+    if not token:
+        return None, False
+    stmt = select(GoogleConnection).order_by(GoogleConnection.id.desc()).limit(1)
+    conn = (await db.execute(stmt)).scalar_one_or_none()
+    scopes = (conn.scopes_granted or "") if conn else ""
+    has_yt_drive = ("youtube" in scopes or "drive" in scopes)
+    return token, has_yt_drive
+
+
 @router.get("/settings", response_model=YouTubeDriveSettingRead)
 async def get_settings(db: AsyncSession = Depends(get_db)):
-    """Fetch current Google Drive folder connection and YouTube automation settings."""
+    """Fetch current Google Drive folder configuration and OAuth connectivity."""
     stmt = select(YouTubeDriveSetting).limit(1)
-    res = await db.execute(stmt)
-    setting = res.scalar_one_or_none()
+    setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
         setting = YouTubeDriveSetting(
             folder_id=DEFAULT_DRIVE_FOLDER_ID,
             folder_name=DEFAULT_DRIVE_FOLDER_NAME,
             auto_publish_daily=True,
             daily_publish_hour=10,
-            is_connected=True
+            is_connected=bool(DEFAULT_DRIVE_FOLDER_ID)
         )
         db.add(setting)
         await db.commit()
@@ -119,21 +94,31 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         setting.is_connected = True
         await db.commit()
         await db.refresh(setting)
-    return setting
+
+    token, has_scopes = await _get_drive_youtube_token(db)
+    return YouTubeDriveSettingRead(
+        id=setting.id,
+        folder_id=setting.folder_id,
+        folder_name=setting.folder_name,
+        auto_publish_daily=setting.auto_publish_daily,
+        daily_publish_hour=setting.daily_publish_hour,
+        is_connected=setting.is_connected,
+        oauth_connected=bool(token and has_scopes),
+        last_synced_at=setting.last_synced_at
+    )
+
 
 @router.post("/settings", response_model=YouTubeDriveSettingRead)
 async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession = Depends(get_db)):
     """Update Google Drive folder ID and YouTube daily automation preferences."""
     stmt = select(YouTubeDriveSetting).limit(1)
-    res = await db.execute(stmt)
-    setting = res.scalar_one_or_none()
+    setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
         setting = YouTubeDriveSetting()
         db.add(setting)
 
     if payload.folder_id is not None:
         clean_id = payload.folder_id.strip()
-        # If user pasted a full URL, extract the ID
         if "drive.google.com" in clean_id and "folders/" in clean_id:
             clean_id = clean_id.split("folders/")[1].split("?")[0].split("/")[0]
         setting.folder_id = clean_id
@@ -148,121 +133,254 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
     setting.last_synced_at = datetime.datetime.now(datetime.timezone.utc)
     await db.commit()
     await db.refresh(setting)
-    return setting
+
+    token, has_scopes = await _get_drive_youtube_token(db)
+    return YouTubeDriveSettingRead(
+        id=setting.id,
+        folder_id=setting.folder_id,
+        folder_name=setting.folder_name,
+        auto_publish_daily=setting.auto_publish_daily,
+        daily_publish_hour=setting.daily_publish_hour,
+        is_connected=setting.is_connected,
+        oauth_connected=bool(token and has_scopes),
+        last_synced_at=setting.last_synced_at
+    )
+
 
 @router.get("/queue", response_model=List[YouTubeQueueItemRead])
 async def list_queue(db: AsyncSession = Depends(get_db)):
-    """List all queued and published YouTube videos. Returns empty if no videos uploaded to Drive."""
+    """List all queued and published YouTube videos from real Drive syncs."""
     stmt = select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc())
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
+
 @router.delete("/queue/clear")
 async def clear_queue(db: AsyncSession = Depends(get_db)):
     """Wipes all items from the YouTube queue."""
-    from sqlalchemy import delete
     await db.execute(delete(YouTubeQueueItem))
     await db.commit()
-    return {"status": "SUCCESS", "message": "All mock and queued videos cleared. Queue is completely empty."}
+    return {"status": "SUCCESS", "message": "Queue cleared completely."}
+
 
 @router.post("/sync-drive", response_model=YouTubeSyncResult)
 async def sync_google_drive(db: AsyncSession = Depends(get_db)):
     """
-    Scans the linked Google Drive folder for new MP4/MOV videos,
-    auto-generates commercial B2B product metadata, and enqueues them for daily 1-by-1 release.
+    Scans the configured Google Drive folder via Google Drive API v3 for MP4/MOV/WEBM files
+    and enqueues new items for YouTube publishing.
     """
-    stmt = select(YouTubeDriveSetting).limit(1)
-    res = await db.execute(stmt)
-    setting = res.scalar_one_or_none()
-    
-    # Update last sync timestamp
+    setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
+    folder_id = setting.folder_id if setting and setting.folder_id else DEFAULT_DRIVE_FOLDER_ID
+
     if setting:
         setting.last_synced_at = datetime.datetime.now(datetime.timezone.utc)
-        if setting.folder_id:
-            setting.is_connected = True
         await db.commit()
 
-    # Query current queued count
-    q_stmt = select(YouTubeQueueItem).where(YouTubeQueueItem.status == YouTubeQueueStatus.QUEUED)
-    q_res = await db.execute(q_stmt)
-    queued_items = list(q_res.scalars().all())
+    token, has_scopes = await _get_drive_youtube_token(db)
+    queued_items = list((await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.status == YouTubeQueueStatus.QUEUED))).scalars().all())
 
+    if not token or not has_scopes:
+        return YouTubeSyncResult(
+            status="SUCCESS",
+            new_videos_found=0,
+            total_queued=len(queued_items),
+            message=(
+                f"Drive folder '{folder_id}' saved, 0 files scanned: Google OAuth authorization with "
+                "Google Drive & YouTube permissions is required to read live files."
+            )
+        )
+
+    new_added = 0
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/drive/v3/files",
+                headers={"Authorization": f"Bearer {token}"},
+                params={
+                    "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'video/'",
+                    "fields": "files(id, name, mimeType, size, createdTime)",
+                    "orderBy": "createdTime asc"
+                }
+            )
+            if resp.status_code != 200:
+                err_detail = resp.text[:250]
+                return YouTubeSyncResult(
+                    status="ERROR",
+                    new_videos_found=0,
+                    total_queued=len(queued_items),
+                    message=f"Google Drive API error ({resp.status_code}): {err_detail}"
+                )
+
+            files = resp.json().get("files", [])
+            existing_ids = set(
+                (await db.execute(select(YouTubeQueueItem.drive_file_id))).scalars().all()
+            )
+            base_day = datetime.datetime.now(datetime.timezone.utc)
+
+            for f in files:
+                fid = f.get("id")
+                fname = f.get("name", "promo_video.mp4")
+                if not fid or fid in existing_ids:
+                    continue
+                sku, prod, title, desc, tags = _infer_product_metadata(fname)
+                item = YouTubeQueueItem(
+                    drive_file_id=fid,
+                    file_name=fname,
+                    product_sku=sku,
+                    product_name=prod,
+                    video_title=title,
+                    description=desc,
+                    tags=tags,
+                    status=YouTubeQueueStatus.QUEUED,
+                    scheduled_for=base_day + datetime.timedelta(days=len(queued_items) + new_added)
+                )
+                db.add(item)
+                existing_ids.add(fid)
+                new_added += 1
+
+            await db.commit()
+    except Exception as e:
+        return YouTubeSyncResult(
+            status="ERROR",
+            new_videos_found=0,
+            total_queued=len(queued_items),
+            message=f"Failed to scan Google Drive folder: {e}"
+        )
+
+    final_queued = list((await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.status == YouTubeQueueStatus.QUEUED))).scalars().all())
     return YouTubeSyncResult(
         status="SUCCESS",
-        new_videos_found=0,
-        total_queued=len(queued_items),
-        message=f"Google Drive folder '{setting.folder_name if setting else 'RAIS_Daily_Promotion_Videos'}' scanned. Queue synchronized with {len(queued_items)} videos waiting for daily 1-by-1 dispatch."
+        new_videos_found=new_added,
+        total_queued=len(final_queued),
+        message=f"Scanned Google Drive folder: {new_added} new video(s) imported, {len(final_queued)} queued."
     )
+
+
+async def _upload_drive_file_to_youtube(item: YouTubeQueueItem, db: AsyncSession) -> YouTubePublishResult:
+    """Downloads genuine video bytes from Google Drive and uploads to YouTube Data API v3."""
+    token, has_scopes = await _get_drive_youtube_token(db)
+    if not token or not has_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail="Google OAuth authorization with YouTube Data API v3 & Drive scopes is required before publishing."
+        )
+    if not item.drive_file_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Queued item has no authentic Google Drive file ID. Sync directly from Drive first."
+        )
+
+    tag_list = [t.strip() for t in (item.tags or "").split(",") if t.strip()]
+    metadata = {
+        "snippet": {
+            "title": item.video_title[:100],
+            "description": item.description,
+            "tags": tag_list,
+            "categoryId": "22"
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # 1. Fetch binary video content from Google Drive
+        drive_resp = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{item.drive_file_id}?alt=media",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if drive_resp.status_code != 200:
+            item.status = YouTubeQueueStatus.FAILED
+            await db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download video from Google Drive ({drive_resp.status_code})."
+            )
+        video_bytes = drive_resp.content
+
+        # 2. Initiate YouTube resumable upload
+        init_resp = await client.post(
+            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Upload-Content-Length": str(len(video_bytes)),
+                "X-Upload-Content-Type": "video/mp4"
+            },
+            content=json.dumps(metadata)
+        )
+        if init_resp.status_code not in (200, 201) or not init_resp.headers.get("Location"):
+            item.status = YouTubeQueueStatus.FAILED
+            await db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=f"YouTube upload initiation rejected ({init_resp.status_code}): {init_resp.text[:250]}"
+            )
+
+        upload_url = init_resp.headers["Location"]
+        up_resp = await client.put(
+            upload_url,
+            headers={"Content-Type": "video/mp4"},
+            content=video_bytes
+        )
+        if up_resp.status_code not in (200, 201):
+            item.status = YouTubeQueueStatus.FAILED
+            await db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=f"YouTube upload failed ({up_resp.status_code}): {up_resp.text[:250]}"
+            )
+
+        yt_data = up_resp.json()
+        yt_id = yt_data.get("id")
+        if not yt_id:
+            raise HTTPException(status_code=500, detail="YouTube API response did not include a video ID.")
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        item.status = YouTubeQueueStatus.PUBLISHED
+        item.published_at = now
+        item.youtube_video_id = yt_id
+        item.youtube_url = f"https://youtube.com/shorts/{yt_id}"
+        await db.commit()
+        await db.refresh(item)
+
+        return YouTubePublishResult(
+            status="SUCCESS",
+            video_id=item.id,
+            youtube_video_id=item.youtube_video_id,
+            youtube_url=item.youtube_url,
+            video_title=item.video_title,
+            message=f"Successfully published '{item.video_title}' to YouTube! Live link: {item.youtube_url}"
+        )
+
 
 @router.post("/publish-next", response_model=YouTubePublishResult)
 async def publish_next_video(db: AsyncSession = Depends(get_db)):
-    """
-    Uploads the next scheduled video from the queue to YouTube as a Short/Video,
-    populates the description with B2B WhatsApp order links, and marks it as PUBLISHED.
-    """
+    """Uploads the next genuinely queued Drive video to YouTube via YouTube Data API v3."""
     stmt = (
         select(YouTubeQueueItem)
         .where(YouTubeQueueItem.status == YouTubeQueueStatus.QUEUED)
         .order_by(YouTubeQueueItem.id.asc())
         .limit(1)
     )
-    res = await db.execute(stmt)
-    next_item = res.scalar_one_or_none()
-
+    next_item = (await db.execute(stmt)).scalar_one_or_none()
     if not next_item:
         return YouTubePublishResult(
             status="ALL_CAUGHT_UP",
-            message="No pending videos in queue. Drop new promotion videos into your Google Drive folder to schedule."
+            message="No pending videos in queue. Drop promotion videos into your Google Drive folder and sync."
         )
+    return await _upload_drive_file_to_youtube(next_item, db)
 
-    # Publish the video
-    now = datetime.datetime.now(datetime.timezone.utc)
-    mock_yt_id = f"RAIS_{next_item.id}_{int(now.timestamp())}"
-    next_item.status = YouTubeQueueStatus.PUBLISHED
-    next_item.published_at = now
-    next_item.youtube_video_id = mock_yt_id
-    next_item.youtube_url = f"https://youtube.com/shorts/{mock_yt_id}"
-
-    await db.commit()
-    await db.refresh(next_item)
-
-    return YouTubePublishResult(
-        status="SUCCESS",
-        video_id=next_item.id,
-        youtube_video_id=next_item.youtube_video_id,
-        youtube_url=next_item.youtube_url,
-        video_title=next_item.video_title,
-        message=f"Successfully published '{next_item.video_title}' to YouTube! Live link: {next_item.youtube_url}"
-    )
 
 @router.post("/publish-item/{item_id}", response_model=YouTubePublishResult)
 async def publish_specific_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    """Immediately publish a specific queued video ahead of its scheduled date."""
-    stmt = select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id)
-    res = await db.execute(stmt)
-    item = res.scalar_one_or_none()
-
+    """Immediately uploads a specific queued Drive video to YouTube Data API v3."""
+    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Queue item not found")
+    return await _upload_drive_file_to_youtube(item, db)
 
-    now = datetime.datetime.now(datetime.timezone.utc)
-    mock_yt_id = f"RAIS_{item.id}_{int(now.timestamp())}"
-    item.status = YouTubeQueueStatus.PUBLISHED
-    item.published_at = now
-    item.youtube_video_id = mock_yt_id
-    item.youtube_url = f"https://youtube.com/shorts/{mock_yt_id}"
-
-    await db.commit()
-    await db.refresh(item)
-
-    return YouTubePublishResult(
-        status="SUCCESS",
-        video_id=item.id,
-        youtube_video_id=item.youtube_video_id,
-        youtube_url=item.youtube_url,
-        video_title=item.video_title,
-        message=f"Video '{item.video_title}' dispatched to YouTube! Live link: {item.youtube_url}"
-    )
 
 @router.get("/setup-guide")
 async def get_setup_guide():
@@ -272,8 +390,8 @@ async def get_setup_guide():
             "title": "Enable Google Drive API & YouTube Data API v3",
             "instructions": [
                 "Go to Google Cloud Console (https://console.cloud.google.com).",
-                "Ensure your existing RAIS project (the one used for Google Business Profile) is selected in the top bar.",
-                "In the left menu, navigate to 'APIs & Services' ➔ 'Library'.",
+                "Select your RAIS project in the top bar.",
+                "In the left menu, navigate to 'APIs & Services' -> 'Library'.",
                 "Search for 'Google Drive API' and click 'Enable'.",
                 "Search for 'YouTube Data API v3' and click 'Enable'."
             ]
@@ -281,21 +399,16 @@ async def get_setup_guide():
         "step_2_get_folder_id": {
             "title": "Get Your Google Drive Folder ID",
             "instructions": [
-                "Open Google Drive (https://drive.google.com) on your computer or phone.",
-                "Create or open a folder named 'RAIS_Daily_Promotion_Videos'.",
-                "Look at the URL in your browser address bar:",
-                "Example: https://drive.google.com/drive/folders/1a2B3c4D5e6F7g8H9i0J",
-                "The string of characters after 'folders/' is your Folder ID (e.g., '1a2B3c4D5e6F7g8H9i0J').",
-                "Paste this Folder ID into the Drive Connection Box in the RAIS Admin Portal."
+                "Open Google Drive (https://drive.google.com).",
+                "Create or open your folder named 'RAIS_Daily_Promotion_Videos'.",
+                "Copy the Folder ID after 'folders/' in the URL and save it in Drive Folder Integration."
             ]
         },
         "step_3_oauth_credentials": {
             "title": "OAuth 2.0 Credentials & YouTube Channel",
             "instructions": [
-                "Under 'APIs & Services' ➔ 'Credentials', click '+ Create Credentials' ➔ 'OAuth client ID'.",
-                "Application type: 'Web application'.",
-                "Add Authorized redirect URI: https://rais-growth-backend.onrender.com/api/v1/google/oauth2callback",
-                "Ensure your Google account owns or manages the RAIS Agencies YouTube channel."
+                "Under 'APIs & Services' -> 'Credentials', verify your OAuth 2.0 Web Client has Authorized redirect URI: https://rais-growth-backend.onrender.com/api/v1/google/callback",
+                "Authorize with the Google account managing your RAIS Agencies YouTube channel."
             ]
         }
     }

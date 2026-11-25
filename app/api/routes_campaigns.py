@@ -105,16 +105,28 @@ async def publish_post_now(post_id: int, db: AsyncSession = Depends(get_db)):
     from app.services.gbp_service import gbp_service
     from datetime import datetime, timezone
     
-    result = await gbp_service.create_local_post(None, payload, db=db)
-    post.status = PostStatus.PUBLISHED
-    post.published_at = datetime.now(timezone.utc)
-    post.google_post_id = result.get("name")
-    await db.commit()
+    try:
+        result = await gbp_service.create_local_post(None, payload, db=db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+
+    is_live = bool(result.get("is_published_to_google") and result.get("state") == "LIVE")
+    if is_live:
+        post.status = PostStatus.PUBLISHED
+        post.published_at = datetime.now(timezone.utc)
+        post.google_post_id = result.get("name")
+        await db.commit()
+        msg = "Post successfully published live to Google Business Profile!"
+    else:
+        # Mock / simulated dry-run must never mark DB post as live-published to Google
+        msg = result.get("notice") or "Dry-run completed (Demo mode — NOT published live to Google Maps)."
 
     return {
         "status": "SUCCESS",
-        "message": "Post successfully published to Google Business Profile!",
+        "message": msg,
         "post_id": post.id,
-        "google_post_id": post.google_post_id,
-        "is_published_to_google": result.get("is_published_to_google", True)
+        "google_post_id": result.get("name"),
+        "is_published_to_google": is_live
     }

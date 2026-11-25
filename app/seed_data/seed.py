@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.config import settings
-from app.core.security import encrypt_token
+from app.core.security import decrypt_token
 from app.models.entities import (
     BusinessProfile, CatalogSKU, ServiceArea, Campaign, CampaignPost,
     KeywordTarget, CompetitorSnapshot, AutomationSetting, PostStatus, VerificationStatus,
@@ -667,37 +667,15 @@ async def seed_initial_data(db: AsyncSession):
         )
         db.add(new_loc)
 
-    # Seed verified GoogleConnection if credentials are configured in environment
-    if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
-        conn_stmt = select(GoogleConnection).limit(1)
-        conn_res = await db.execute(conn_stmt)
-        conn = conn_res.scalar_one_or_none()
-        if not conn:
-            conn = GoogleConnection(
-                account_id="accounts/106201059585451801696",
-                location_id="locations/17901714523973178723",
-                account_name="RAIS Agencies",
-                account_email="basha.shaikirfan@gmail.com",
-                location_name="RAIS Agencies",
-                is_connected=True,
-                is_mock=False,
-                scopes_granted="https://www.googleapis.com/auth/business.manage",
-                token_expiry=datetime.now(timezone.utc) + timedelta(days=730),
-                encrypted_access_token=encrypt_token("ya29.live_authorized_persisted_rais_token"),
-                last_sync=datetime.now(timezone.utc)
-            )
-            db.add(conn)
-        else:
-            conn.account_id = "accounts/106201059585451801696"
-            conn.location_id = "locations/17901714523973178723"
-            conn.location_name = "RAIS Agencies"
-            conn.account_name = "RAIS Agencies"
-            conn.account_email = "basha.shaikirfan@gmail.com"
-            conn.is_connected = True
-            conn.is_mock = False
-            if not conn.encrypted_access_token:
-                conn.encrypted_access_token = encrypt_token("ya29.live_authorized_persisted_rais_token")
-            if not conn.token_expiry:
-                conn.token_expiry = datetime.now(timezone.utc) + timedelta(days=730)
+    # Cleanup any legacy pre-seeded dummy placeholder GoogleConnection tokens (never mark CONNECTED without genuine OAuth)
+    conn_stmt = select(GoogleConnection).limit(1)
+    conn_res = await db.execute(conn_stmt)
+    conn = conn_res.scalar_one_or_none()
+    if conn and conn.encrypted_access_token:
+        plain = decrypt_token(conn.encrypted_access_token)
+        if plain and plain.startswith("ya29.live_authorized_persisted"):
+            conn.is_connected = False
+            conn.encrypted_access_token = None
+            conn.last_sync = None
 
     await db.commit()

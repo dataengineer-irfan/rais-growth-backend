@@ -1,10 +1,13 @@
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.database import get_db
-from app.models.entities import KeywordTarget, CompetitorSnapshot, BusinessProfile
-from app.schemas.schemas import KeywordTargetRead, CompetitorSnapshotRead
+from app.models.entities import (
+    KeywordTarget, CompetitorSnapshot, BusinessProfile,
+    CatalogSKU, Review, ServiceArea, VerificationStatus
+)
+from app.schemas.schemas import KeywordTargetRead, CompetitorSnapshotRead, CompetitorSnapshotCreate
 
 router = APIRouter(prefix="/seo", tags=["Local SEO & Competitor Intelligence"])
 
@@ -43,44 +46,75 @@ async def list_competitors(db: AsyncSession = Depends(get_db)):
     res = await db.execute(stmt)
     return res.scalars().all()
 
+@router.post("/competitors", response_model=CompetitorSnapshotRead)
+async def create_competitor(payload: CompetitorSnapshotCreate, db: AsyncSession = Depends(get_db)):
+    """Add a manually observed local competitor snapshot."""
+    comp = CompetitorSnapshot(
+        competitor_name=payload.competitor_name.strip(),
+        location_area=payload.location_area.strip(),
+        public_category=payload.public_category,
+        rating=payload.rating,
+        review_count=payload.review_count,
+        verified_status=VerificationStatus.UNVERIFIED_CLAIM,
+        notes=payload.notes,
+        source=payload.source
+    )
+    db.add(comp)
+    await db.commit()
+    await db.refresh(comp)
+    return comp
+
+@router.delete("/competitors/{comp_id}")
+async def delete_competitor(comp_id: int, db: AsyncSession = Depends(get_db)):
+    """Remove a competitor snapshot by ID."""
+    stmt = select(CompetitorSnapshot).where(CompetitorSnapshot.id == comp_id)
+    res = await db.execute(stmt)
+    comp = res.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    await db.delete(comp)
+    await db.commit()
+    return {"status": "DELETED", "id": comp_id}
+
 @router.get("/audit")
 async def get_profile_audit(db: AsyncSession = Depends(get_db)):
     """
-    Comprehensive Local SEO Engine Audit across the 3 Core Google Pillars:
-    1. Relevance (Categories, keyword density, OfferCatalog schema)
-    2. Proximity (Geo-coordinates, SAB catchment coverage, EXIF GPS)
-    3. Prominence (Review velocity, NAP consistency, authoritative citations)
+    Comprehensive Local SEO Engine Audit evaluated against real database state
+    across Relevance, Proximity, and Prominence.
     """
     stmt = select(BusinessProfile).limit(1)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
+    sku_count = (await db.execute(select(func.count(CatalogSKU.id)))).scalar() or 0
+    area_count = (await db.execute(select(func.count(ServiceArea.id)))).scalar() or 0
+    kw_count = (await db.execute(select(func.count(KeywordTarget.id)))).scalar() or 0
+    review_count = (await db.execute(select(func.count(Review.id)))).scalar() or 0
+    replied_count = (await db.execute(select(func.count(Review.id)).where(Review.has_replied == True))).scalar() or 0
+
     audit_items = [
-        # Pillar 1: Relevance
         {"pillar": "RELEVANCE", "check": "Primary Category locked to 'Wholesale food store'", "passed": bool(p and p.primary_category == "Wholesale food store"), "impact": "Critical"},
-        {"pillar": "RELEVANCE", "check": "Deep Schema OfferCatalog bound to Google Maps entity", "passed": True, "impact": "High"},
-        {"pillar": "RELEVANCE", "check": "Algorithmic B2B keyword injection active in review responses", "passed": True, "impact": "High"},
-        
-        # Pillar 2: Proximity
-        {"pillar": "PROXIMITY", "check": "Verified Depot GPS Coordinates (14.059359, 78.759402) matched to Maps Place ID", "passed": True, "impact": "Critical"},
-        {"pillar": "PROXIMITY", "check": "Multi-city B2B distribution silos live (Madanapalle, Kadapa, Rajampet)", "passed": True, "impact": "High"},
-        {"pillar": "PROXIMITY", "check": "Automated EXIF GPS metadata injection enabled for media uploads", "passed": True, "impact": "High"},
-        
-        # Pillar 3: Prominence
-        {"pillar": "PROMINENCE", "check": "Automated post-delivery WhatsApp review trigger active", "passed": True, "impact": "High"},
-        {"pillar": "PROMINENCE", "check": "NAP (Name, Address, Phone) consistency verified across all platforms", "passed": bool(p and "Indel Money Bank" in (p.address or "") and p.primary_phone == "9347453135"), "impact": "Critical"},
-        {"pillar": "PROMINENCE", "check": "Real customer review cadence active on Google Maps (5.0 rating)", "passed": True, "impact": "High"}
+        {"pillar": "RELEVANCE", "check": f"Verified catalog SKUs synced ({sku_count} SKUs in DB)", "passed": sku_count >= 10, "impact": "High"},
+        {"pillar": "RELEVANCE", "check": f"Target Rayachoty commercial search keywords tracked ({kw_count} keywords)", "passed": kw_count >= 10, "impact": "High"},
+        {"pillar": "PROXIMITY", "check": "Verified Depot GPS Coordinates configured (14.059359, 78.759402)", "passed": bool(p and p.latitude and p.longitude), "impact": "Critical"},
+        {"pillar": "PROXIMITY", "check": f"Multi-city B2B distribution corridors configured ({area_count} corridors)", "passed": area_count >= 5, "impact": "High"},
+        {"pillar": "PROMINENCE", "check": "NAP (Name, Address, Phone) consistency verified across hub profile", "passed": bool(p and "Indel Money Bank" in (p.address or "") and p.primary_phone == "9347453135"), "impact": "Critical"},
+        {"pillar": "PROMINENCE", "check": f"Historical Google Maps reviews logged ({review_count} reviews, {replied_count} replied)", "passed": review_count > 0, "impact": "High"}
     ]
     passed_count = sum(1 for a in audit_items if a["passed"])
     score = int((passed_count / len(audit_items)) * 100)
+
+    rel_items = [a for a in audit_items if a["pillar"] == "RELEVANCE"]
+    prox_items = [a for a in audit_items if a["pillar"] == "PROXIMITY"]
+    prom_items = [a for a in audit_items if a["pillar"] == "PROMINENCE"]
 
     return {
         "completeness_score": score,
         "status": "EXCELLENT" if score >= 85 else "NEEDS_OPTIMIZATION",
         "pillars": {
-            "relevance_score": 100,
-            "proximity_score": 100,
-            "prominence_score": 100
+            "relevance_score": int(100 * sum(a["passed"] for a in rel_items) / len(rel_items)),
+            "proximity_score": int(100 * sum(a["passed"] for a in prox_items) / len(prox_items)),
+            "prominence_score": int(100 * sum(a["passed"] for a in prom_items) / len(prom_items))
         },
         "audit_items": audit_items
     }

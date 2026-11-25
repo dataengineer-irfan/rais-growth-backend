@@ -12,17 +12,21 @@ from app.schemas.schemas import GoogleAuthorizeResponse, GoogleStatusResponse
 router = APIRouter(prefix="/google", tags=["Google Business Profile API"])
 
 @router.get("/authorize", response_model=GoogleAuthorizeResponse)
-async def get_authorization_url(db: AsyncSession = Depends(get_db)):
+async def get_authorization_url(
+    include_youtube: bool = Query(False, description="Include Google Drive and YouTube upload OAuth scopes"),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Generates official Google OAuth 2.0 authorization URL with cryptographically secure state.
-    Scopes restricted strictly to verified business profile operations.
+    Scopes cover Google Business Profile management, plus optional Google Drive & YouTube upload.
     """
     try:
-        return await gbp_service.generate_authorization_url(db=db)
+        return await gbp_service.generate_authorization_url(db=db, include_youtube=include_youtube)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/callback")
+@router.get("/oauth2callback", include_in_schema=False)
 async def oauth_callback(
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),

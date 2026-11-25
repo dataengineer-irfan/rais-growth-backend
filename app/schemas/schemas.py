@@ -187,6 +187,15 @@ class KeywordTargetRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class CompetitorSnapshotCreate(BaseModel):
+    competitor_name: str
+    location_area: str
+    public_category: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: int = 0
+    notes: Optional[str] = None
+    source: str = "Manual Field Observation"
+
 class CompetitorSnapshotRead(BaseModel):
     id: int
     competitor_name: str
@@ -309,6 +318,7 @@ class YouTubeDriveSettingRead(BaseModel):
     auto_publish_daily: bool
     daily_publish_hour: int
     is_connected: bool
+    oauth_connected: bool = False
     last_synced_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
