@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,8 +13,22 @@ from app.api.routes_google import router as google_router
 from app.api.routes_seo import router as seo_router
 from app.api.routes_leads import router as leads_router
 from app.api.routes_automation import router as automation_router
-from app.api.routes_youtube import router as youtube_router
+from app.api.routes_youtube import router as youtube_router, run_autopilot_cycle
 from app.api.routes_meta import router as meta_router
+
+
+async def _drive_autopilot_loop():
+    """Hands-free watcher: every 3 minutes scans Drive for new videos and auto-publishes YT + IG + FB + First Comments."""
+    while True:
+        try:
+            await asyncio.sleep(180)
+            async with AsyncSessionLocal() as session:
+                await run_autopilot_cycle(session)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,9 +36,16 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with AsyncSessionLocal() as session:
         await seed_initial_data(session)
-    yield
-    # Shutdown: Clean up any active connections
-    pass
+    autopilot_task = asyncio.create_task(_drive_autopilot_loop())
+    try:
+        yield
+    finally:
+        # Shutdown: Cancel background watcher cleanly
+        autopilot_task.cancel()
+        try:
+            await autopilot_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

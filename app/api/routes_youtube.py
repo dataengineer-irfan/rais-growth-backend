@@ -3,14 +3,16 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import encrypt_token
 from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus, GoogleConnection
 from app.schemas.schemas import (
     YouTubeQueueItemRead,
+    YouTubeQueueItemUpdate,
     YouTubeDriveSettingRead,
     YouTubeDriveSettingUpdate,
     YouTubeSyncResult,
@@ -19,6 +21,8 @@ from app.schemas.schemas import (
 )
 from app.services.gbp_service import gbp_service
 from app.services.meta_service import MetaService
+from app.services.scheduler_service import SchedulerService
+from app.services.video_ai_service import VideoAIService, build_default_first_comment
 
 router = APIRouter(prefix="/youtube", tags=["YouTube & Google Drive Automation"])
 
@@ -77,9 +81,29 @@ async def _get_drive_youtube_token(db: AsyncSession) -> Tuple[Optional[str], boo
     return token, has_yt_drive
 
 
+async def _serialize_drive_settings(setting: YouTubeDriveSetting, db: AsyncSession) -> YouTubeDriveSettingRead:
+    token, has_scopes = await _get_drive_youtube_token(db)
+    gemini_key = await VideoAIService.resolve_gemini_key(db)
+    return YouTubeDriveSettingRead(
+        id=setting.id,
+        folder_id=setting.folder_id,
+        folder_name=setting.folder_name,
+        auto_publish_daily=setting.auto_publish_daily,
+        auto_publish_instagram=bool(setting.auto_publish_instagram),
+        auto_publish_facebook=bool(setting.auto_publish_facebook),
+        auto_post_immediately=True if setting.auto_post_immediately is None else bool(setting.auto_post_immediately),
+        auto_first_comment=True if setting.auto_first_comment is None else bool(setting.auto_first_comment),
+        gemini_connected=bool(gemini_key),
+        daily_publish_hour=setting.daily_publish_hour,
+        is_connected=setting.is_connected,
+        oauth_connected=bool(token and has_scopes),
+        last_synced_at=setting.last_synced_at
+    )
+
+
 @router.get("/settings", response_model=YouTubeDriveSettingRead)
 async def get_settings(db: AsyncSession = Depends(get_db)):
-    """Fetch current Google Drive folder configuration and OAuth connectivity."""
+    """Fetch current Google Drive folder configuration, Auto-Pilot toggles & OAuth connectivity."""
     stmt = select(YouTubeDriveSetting).limit(1)
     setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
@@ -89,6 +113,8 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
             auto_publish_daily=True,
             auto_publish_instagram=True,
             auto_publish_facebook=True,
+            auto_post_immediately=True,
+            auto_first_comment=True,
             daily_publish_hour=10,
             is_connected=bool(DEFAULT_DRIVE_FOLDER_ID)
         )
@@ -101,24 +127,12 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(setting)
 
-    token, has_scopes = await _get_drive_youtube_token(db)
-    return YouTubeDriveSettingRead(
-        id=setting.id,
-        folder_id=setting.folder_id,
-        folder_name=setting.folder_name,
-        auto_publish_daily=setting.auto_publish_daily,
-        auto_publish_instagram=bool(setting.auto_publish_instagram),
-        auto_publish_facebook=bool(setting.auto_publish_facebook),
-        daily_publish_hour=setting.daily_publish_hour,
-        is_connected=setting.is_connected,
-        oauth_connected=bool(token and has_scopes),
-        last_synced_at=setting.last_synced_at
-    )
+    return await _serialize_drive_settings(setting, db)
 
 
 @router.post("/settings", response_model=YouTubeDriveSettingRead)
 async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession = Depends(get_db)):
-    """Update Google Drive folder ID and YouTube + Meta cross-posting automation preferences."""
+    """Update Google Drive folder ID, Gemini Video AI key & multi-platform auto-pilot preferences."""
     stmt = select(YouTubeDriveSetting).limit(1)
     setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
@@ -139,6 +153,13 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
         setting.auto_publish_instagram = payload.auto_publish_instagram
     if payload.auto_publish_facebook is not None:
         setting.auto_publish_facebook = payload.auto_publish_facebook
+    if payload.auto_post_immediately is not None:
+        setting.auto_post_immediately = payload.auto_post_immediately
+    if payload.auto_first_comment is not None:
+        setting.auto_first_comment = payload.auto_first_comment
+    if payload.gemini_api_key is not None:
+        cleaned_key = payload.gemini_api_key.strip()
+        setting.encrypted_gemini_api_key = encrypt_token(cleaned_key) if cleaned_key else None
     if payload.daily_publish_hour is not None:
         setting.daily_publish_hour = payload.daily_publish_hour
 
@@ -146,19 +167,67 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
     await db.commit()
     await db.refresh(setting)
 
-    token, has_scopes = await _get_drive_youtube_token(db)
-    return YouTubeDriveSettingRead(
-        id=setting.id,
-        folder_id=setting.folder_id,
-        folder_name=setting.folder_name,
-        auto_publish_daily=setting.auto_publish_daily,
-        auto_publish_instagram=bool(setting.auto_publish_instagram),
-        auto_publish_facebook=bool(setting.auto_publish_facebook),
-        daily_publish_hour=setting.daily_publish_hour,
-        is_connected=setting.is_connected,
-        oauth_connected=bool(token and has_scopes),
-        last_synced_at=setting.last_synced_at
+    return await _serialize_drive_settings(setting, db)
+
+
+@router.patch("/queue/{item_id}", response_model=YouTubeQueueItemRead)
+async def update_queue_item(
+    item_id: int, payload: YouTubeQueueItemUpdate, db: AsyncSession = Depends(get_db)
+):
+    """Update generated hook title, bilingual caption, hashtags, or first comment on a queued item."""
+    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    if payload.product_sku is not None:
+        item.product_sku = payload.product_sku
+    if payload.product_name is not None:
+        item.product_name = payload.product_name
+    if payload.video_title is not None:
+        item.video_title = payload.video_title[:150]
+    if payload.description is not None:
+        item.description = payload.description
+    if payload.first_comment is not None:
+        item.first_comment = payload.first_comment
+    if payload.tags is not None:
+        item.tags = payload.tags
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.post("/queue/{item_id}/analyze", response_model=YouTubeQueueItemRead)
+async def analyze_queue_item_video(item_id: int, db: AsyncSession = Depends(get_db)):
+    """Re-analyzes a queued Drive MP4 (using Gemini Video Vision if configured) and upgrades viral hook + comment."""
+    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    gemini_key = await VideoAIService.resolve_gemini_key(db)
+    video_bytes: Optional[bytes] = None
+    if gemini_key and item.drive_file_id:
+        try:
+            video_bytes = await download_drive_video_bytes(item.drive_file_id, db)
+        except Exception:
+            video_bytes = None
+
+    meta = await VideoAIService.analyze_drive_video(
+        file_name=item.file_name,
+        drive_description="",
+        video_bytes=video_bytes,
+        gemini_api_key=gemini_key,
     )
+    item.product_sku = meta["product_sku"]
+    item.product_name = meta["product_name"]
+    item.video_title = meta["video_title"]
+    item.description = meta["description"]
+    item.first_comment = meta["first_comment"]
+    item.tags = meta["tags"]
+    item.ai_analyzed = bool(meta.get("ai_analyzed", False))
+    await db.commit()
+    await db.refresh(item)
+    return item
 
 
 @router.get("/queue", response_model=List[YouTubeQueueItemRead])
@@ -212,7 +281,7 @@ async def sync_google_drive(db: AsyncSession = Depends(get_db)):
                 headers={"Authorization": f"Bearer {token}"},
                 params={
                     "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'video/'",
-                    "fields": "files(id, name, mimeType, size, createdTime)",
+                    "fields": "files(id, name, description, mimeType, size, createdTime)",
                     "orderBy": "createdTime asc"
                 }
             )
@@ -230,21 +299,48 @@ async def sync_google_drive(db: AsyncSession = Depends(get_db)):
                 (await db.execute(select(YouTubeQueueItem.drive_file_id))).scalars().all()
             )
             base_day = datetime.datetime.now(datetime.timezone.utc)
+            gemini_key = await VideoAIService.resolve_gemini_key(db)
 
             for f in files:
                 fid = f.get("id")
                 fname = f.get("name", "promo_video.mp4")
+                fdesc = f.get("description") or ""
+                try:
+                    fsize = int(f.get("size") or 0)
+                except (TypeError, ValueError):
+                    fsize = 0
                 if not fid or fid in existing_ids:
                     continue
-                sku, prod, title, desc, tags = _infer_product_metadata(fname)
+
+                video_bytes: Optional[bytes] = None
+                if gemini_key and (fsize == 0 or fsize <= VideoAIService.MAX_INLINE_BYTES):
+                    try:
+                        dl = await client.get(
+                            f"https://www.googleapis.com/drive/v3/files/{fid}?alt=media",
+                            headers={"Authorization": f"Bearer {token}"},
+                            timeout=60.0,
+                        )
+                        if dl.status_code == 200:
+                            video_bytes = dl.content
+                    except Exception:
+                        video_bytes = None
+
+                meta = await VideoAIService.analyze_drive_video(
+                    file_name=fname,
+                    drive_description=fdesc,
+                    video_bytes=video_bytes,
+                    gemini_api_key=gemini_key,
+                )
                 item = YouTubeQueueItem(
                     drive_file_id=fid,
                     file_name=fname,
-                    product_sku=sku,
-                    product_name=prod,
-                    video_title=title,
-                    description=desc,
-                    tags=tags,
+                    product_sku=meta["product_sku"],
+                    product_name=meta["product_name"],
+                    video_title=meta["video_title"],
+                    description=meta["description"],
+                    first_comment=meta["first_comment"],
+                    tags=meta["tags"],
+                    ai_analyzed=bool(meta.get("ai_analyzed", False)),
                     status=YouTubeQueueStatus.QUEUED,
                     scheduled_for=base_day + datetime.timedelta(days=len(queued_items) + new_added)
                 )
@@ -439,38 +535,16 @@ async def download_drive_video_for_share(drive_file_id: str, db: AsyncSession = 
     )
 
 
-@router.post("/publish-multi/{item_id}")
-async def publish_item_multi_platform(
-    item_id: int,
-    payload: Optional[MetaPublishRequest] = Body(default=None),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Unified cross-platform publisher: dispatches one synced Drive video to selected channels
-    among YouTube Shorts, Instagram Reels (@raisfrozenfoods), and Facebook Page.
-    """
-    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Queue item not found")
-
-    if payload and payload.platforms:
-        targets = [p.strip().lower() for p in payload.platforms if p and p.strip()]
-    else:
-        setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
-        targets = []
-        if not setting or setting.auto_publish_daily:
-            targets.append("youtube")
-        if not setting or setting.auto_publish_instagram:
-            targets.append("instagram")
-        if not setting or setting.auto_publish_facebook:
-            targets.append("facebook")
-        if not targets:
-            targets = ["youtube", "instagram", "facebook"]
-
+async def _dispatch_item_to_channels(
+    item: YouTubeQueueItem,
+    targets: List[str],
+    db: AsyncSession,
+) -> Dict[str, Any]:
+    """Shared cross-platform dispatcher across YouTube Shorts, Instagram Reels & Facebook Page (+ First Comments)."""
     results: Dict[str, Any] = {}
     errors: List[str] = []
 
-    if "youtube" in targets:
+    if "youtube" in targets and item.status != YouTubeQueueStatus.PUBLISHED:
         try:
             yt_res = await _upload_drive_file_to_youtube(item, db)
             results["youtube"] = {
@@ -483,7 +557,12 @@ async def publish_item_multi_platform(
         except Exception as exc:
             errors.append(f"YouTube: {exc}")
 
-    meta_targets = [p for p in targets if p in ("instagram", "facebook")]
+    meta_targets: List[str] = []
+    if "instagram" in targets and item.ig_status != "PUBLISHED":
+        meta_targets.append("instagram")
+    if "facebook" in targets and item.fb_status != "PUBLISHED":
+        meta_targets.append("facebook")
+
     if meta_targets:
         try:
             meta_out = await MetaService.publish_queue_item(
@@ -499,6 +578,135 @@ async def publish_item_multi_platform(
             errors.append(str(exc))
 
     await db.refresh(item)
+    return {"results": results, "errors": errors}
+
+
+def _resolve_enabled_channels(setting: Optional[YouTubeDriveSetting]) -> List[str]:
+    targets: List[str] = []
+    if not setting or setting.auto_publish_daily:
+        targets.append("youtube")
+    if not setting or setting.auto_publish_instagram:
+        targets.append("instagram")
+    if not setting or setting.auto_publish_facebook:
+        targets.append("facebook")
+    return targets or ["youtube", "instagram", "facebook"]
+
+
+async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
+    """
+    Zero-manual full automation cycle:
+    1) Checks Emergency Kill Switch.
+    2) Scans Google Drive for newly uploaded videos and runs VideoAIService hook/caption/comment generation.
+    3) Automatically publishes any pending videos to enabled channels (YouTube, IG Reels + First Comment, FB + First Comment).
+    """
+    if await SchedulerService().check_kill_switch(db):
+        return {
+            "status": "HALTED",
+            "message": "Emergency kill switch is active. Auto-publish paused.",
+            "new_videos_found": 0,
+            "published_items": [],
+            "errors": [],
+        }
+
+    sync_res = await sync_google_drive(db)
+    setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
+    auto_immediate = True if not setting or setting.auto_post_immediately is None else bool(setting.auto_post_immediately)
+    if not auto_immediate:
+        return {
+            "status": "SYNCED_ONLY",
+            "message": sync_res.message,
+            "new_videos_found": sync_res.new_videos_found,
+            "published_items": [],
+            "errors": [],
+        }
+
+    targets = _resolve_enabled_channels(setting)
+    token, has_scopes = await _get_drive_youtube_token(db)
+    meta_creds = await MetaService.get_credentials(db)
+
+    runnable_targets: List[str] = []
+    if "youtube" in targets and token and has_scopes:
+        runnable_targets.append("youtube")
+    if ("instagram" in targets or "facebook" in targets) and meta_creds and token and has_scopes:
+        if "instagram" in targets:
+            runnable_targets.append("instagram")
+        if "facebook" in targets:
+            runnable_targets.append("facebook")
+
+    if not runnable_targets:
+        return {
+            "status": "AUTH_REQUIRED",
+            "message": sync_res.message,
+            "new_videos_found": sync_res.new_videos_found,
+            "published_items": [],
+            "errors": [],
+        }
+
+    all_items = list(
+        (await db.execute(select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc()))).scalars().all()
+    )
+    published_items: List[Dict[str, Any]] = []
+    errors: List[str] = []
+
+    for item in all_items:
+        needs_yt = "youtube" in runnable_targets and item.status == YouTubeQueueStatus.QUEUED
+        needs_ig = "instagram" in runnable_targets and (item.ig_status or "PENDING") == "PENDING"
+        needs_fb = "facebook" in runnable_targets and (item.fb_status or "PENDING") == "PENDING"
+        if not (needs_yt or needs_ig or needs_fb):
+            continue
+
+        item_targets = [
+            t for t, need in (("youtube", needs_yt), ("instagram", needs_ig), ("facebook", needs_fb)) if need
+        ]
+        outcome = await _dispatch_item_to_channels(item, item_targets, db)
+        if outcome["results"]:
+            published_items.append({"item_id": item.id, "title": item.video_title, "results": outcome["results"]})
+        if outcome["errors"]:
+            errors.extend([f"#{item.id}: {e}" for e in outcome["errors"]])
+
+    return {
+        "status": "PARTIAL" if (errors and published_items) else ("ERROR" if errors else "SUCCESS"),
+        "new_videos_found": sync_res.new_videos_found,
+        "published_count": len(published_items),
+        "published_items": published_items,
+        "errors": errors,
+        "message": (
+            f"Auto-Pilot complete: {sync_res.new_videos_found} new Drive video(s), "
+            f"{len(published_items)} item(s) published across {', '.join(runnable_targets)}."
+        ),
+    }
+
+
+@router.post("/auto-run")
+async def trigger_autopilot_run(db: AsyncSession = Depends(get_db)):
+    """Runs the full hands-free Drive Scan -> AI Hook/Comment Generation -> Multi-Platform Publish cycle."""
+    return await run_autopilot_cycle(db)
+
+
+@router.post("/publish-multi/{item_id}")
+async def publish_item_multi_platform(
+    item_id: int,
+    payload: Optional[MetaPublishRequest] = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unified cross-platform publisher: dispatches one synced Drive video to selected channels
+    among YouTube Shorts, Instagram Reels (@rais_agencies_frozen_foods), and Facebook Page (+ First Comments).
+    """
+    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    if payload and payload.platforms:
+        targets = [p.strip().lower() for p in payload.platforms if p and p.strip()]
+    else:
+        setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
+        targets = _resolve_enabled_channels(setting)
+
+    outcome = await _dispatch_item_to_channels(item, targets, db)
+    results = outcome["results"]
+    errors = outcome["errors"]
+
     if errors and not results:
         raise HTTPException(status_code=400, detail=" | ".join(errors))
 

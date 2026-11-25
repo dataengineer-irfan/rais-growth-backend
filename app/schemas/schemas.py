@@ -307,9 +307,21 @@ class YouTubeQueueItemRead(BaseModel):
     fb_url: Optional[str] = None
     fb_published_at: Optional[datetime] = None
     fb_error: Optional[str] = None
+    first_comment: Optional[str] = None
+    ig_comment_id: Optional[str] = None
+    fb_comment_id: Optional[str] = None
+    ai_analyzed: Optional[bool] = False
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class YouTubeQueueItemUpdate(BaseModel):
+    product_sku: Optional[str] = None
+    product_name: Optional[str] = None
+    video_title: Optional[str] = None
+    description: Optional[str] = None
+    first_comment: Optional[str] = None
+    tags: Optional[str] = None
 
 class YouTubeQueueItemCreate(BaseModel):
     file_name: str
@@ -318,6 +330,7 @@ class YouTubeQueueItemCreate(BaseModel):
     product_name: Optional[str] = None
     video_title: str
     description: str
+    first_comment: Optional[str] = None
     tags: Optional[str] = None
     scheduled_for: Optional[datetime] = None
 
@@ -328,6 +341,9 @@ class YouTubeDriveSettingRead(BaseModel):
     auto_publish_daily: bool
     auto_publish_instagram: bool = True
     auto_publish_facebook: bool = True
+    auto_post_immediately: bool = True
+    auto_first_comment: bool = True
+    gemini_connected: bool = False
     daily_publish_hour: int
     is_connected: bool
     oauth_connected: bool = False
@@ -341,6 +357,9 @@ class YouTubeDriveSettingUpdate(BaseModel):
     auto_publish_daily: Optional[bool] = True
     auto_publish_instagram: Optional[bool] = True
     auto_publish_facebook: Optional[bool] = True
+    auto_post_immediately: Optional[bool] = True
+    auto_first_comment: Optional[bool] = True
+    gemini_api_key: Optional[str] = None
     daily_publish_hour: Optional[int] = 10
 
 class YouTubeSyncResult(BaseModel):

@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import decrypt_token, encrypt_token
-from app.models.entities import MetaConnection
+from app.models.entities import MetaConnection, YouTubeDriveSetting
+from app.services.video_ai_service import build_default_first_comment
 
 
 class MetaService:
@@ -255,32 +256,72 @@ class MetaService:
         await db.commit()
 
     @classmethod
+    async def _post_first_comment(
+        cls, http: httpx.AsyncClient, media_or_video_id: str, token: str, comment_text: Optional[str]
+    ) -> Optional[str]:
+        msg = (comment_text or "").strip()
+        if not msg:
+            return None
+        try:
+            c_resp = await http.post(
+                f"{cls.GRAPH_BASE}/{media_or_video_id}/comments",
+                data={"message": msg[:2000], "access_token": token},
+            )
+            if c_resp.status_code == 200 and c_resp.json().get("id"):
+                return str(c_resp.json()["id"])
+        except Exception:
+            pass
+        return None
+
+    @classmethod
     async def publish_to_instagram(
         cls,
         creds: Dict[str, Any],
         video_url: str,
         caption: str,
+        first_comment: Optional[str] = None,
         poll_interval: float = 4.0,
         max_polls: int = 20,
         client: Optional[httpx.AsyncClient] = None,
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Optional[str]]:
         ig_user_id = creds.get("ig_user_id")
         token = creds.get("access_token")
+        page_id = creds.get("page_id")
         if not ig_user_id or not token:
             raise ValueError("Linked Instagram Business Account ID and Meta token are required.")
 
-        async def _run(http: httpx.AsyncClient) -> Dict[str, str]:
-            # 1. Create Reels media container
+        async def _run(http: httpx.AsyncClient) -> Dict[str, Optional[str]]:
+            container_payload: Dict[str, str] = {
+                "media_type": "REELS",
+                "video_url": video_url,
+                "caption": caption[:2200],
+                "share_to_feed": "true",
+                "access_token": token,
+            }
+            # Best-effort Rayachoty Facebook Page location tag
+            if page_id:
+                try:
+                    loc_resp = await http.get(
+                        f"{cls.GRAPH_BASE}/{page_id}",
+                        params={"fields": "location", "access_token": token},
+                    )
+                    if loc_resp.status_code == 200 and loc_resp.json().get("location"):
+                        container_payload["location_id"] = str(page_id)
+                except Exception:
+                    pass
+
+            # 1. Create Reels media container (retrying cleanly without location_id if Page isn't a valid IG Place)
             create_resp = await http.post(
                 f"{cls.GRAPH_BASE}/{ig_user_id}/media",
-                data={
-                    "media_type": "REELS",
-                    "video_url": video_url,
-                    "caption": caption[:2200],
-                    "share_to_feed": "true",
-                    "access_token": token,
-                },
+                data=container_payload,
             )
+            if create_resp.status_code != 200 and "location_id" in container_payload:
+                container_payload.pop("location_id", None)
+                create_resp = await http.post(
+                    f"{cls.GRAPH_BASE}/{ig_user_id}/media",
+                    data=container_payload,
+                )
+
             if create_resp.status_code != 200:
                 raise ValueError(
                     f"Instagram container creation failed ({create_resp.status_code}): {cls._extract_graph_error(create_resp)}"
@@ -324,7 +365,7 @@ class MetaService:
                 raise ValueError("Instagram publish response missing media ID.")
 
             # 4. Fetch real permalink
-            permalink = f"https://www.instagram.com/{creds.get('ig_username') or 'raisfrozenfoods'}/"
+            permalink = f"https://www.instagram.com/{creds.get('ig_username') or 'rais_agencies_frozen_foods'}/"
             link_resp = await http.get(
                 f"{cls.GRAPH_BASE}/{media_id}",
                 params={"fields": "permalink", "access_token": token},
@@ -332,7 +373,14 @@ class MetaService:
             if link_resp.status_code == 200 and link_resp.json().get("permalink"):
                 permalink = link_resp.json()["permalink"]
 
-            return {"media_id": str(media_id), "permalink": permalink}
+            # 5. Auto-post first comment (Rayachoty location, WhatsApp link & hashtags)
+            comment_id = await cls._post_first_comment(http, str(media_id), token, first_comment)
+
+            return {
+                "media_id": str(media_id),
+                "permalink": permalink,
+                "comment_id": comment_id,
+            }
 
         if client is not None:
             return await _run(client)
@@ -347,14 +395,15 @@ class MetaService:
         filename: str,
         title: str,
         description: str,
+        first_comment: Optional[str] = None,
         client: Optional[httpx.AsyncClient] = None,
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Optional[str]]:
         page_id = creds.get("page_id")
         token = creds.get("access_token")
         if not page_id or not token:
             raise ValueError("Facebook Page ID and Meta Page Access Token are required.")
 
-        async def _run(http: httpx.AsyncClient) -> Dict[str, str]:
+        async def _run(http: httpx.AsyncClient) -> Dict[str, Optional[str]]:
             upload_resp = await http.post(
                 f"{cls.GRAPH_VIDEO_BASE}/{page_id}/videos",
                 data={
@@ -383,7 +432,14 @@ class MetaService:
                 p = link_resp.json()["permalink_url"]
                 fb_url = f"https://www.facebook.com{p}" if p.startswith("/") else p
 
-            return {"video_id": str(video_id), "url": fb_url}
+            # Auto-post first comment (location + WhatsApp order link + hashtags)
+            comment_id = await cls._post_first_comment(http, str(video_id), token, first_comment)
+
+            return {
+                "video_id": str(video_id),
+                "url": fb_url,
+                "comment_id": comment_id,
+            }
 
         if client is not None:
             return await _run(client)
@@ -430,6 +486,14 @@ class MetaService:
             targets = ["instagram", "facebook"]
 
         caption = cls.build_meta_caption(item)
+        stg = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
+        should_comment = True if not stg or stg.auto_first_comment is None else bool(stg.auto_first_comment)
+        first_comment = None
+        if should_comment:
+            first_comment = (getattr(item, "first_comment", None) or "").strip() or build_default_first_comment(
+                getattr(item, "product_name", None) or "Wholesale Frozen Foods"
+            )
+
         now = datetime.now(timezone.utc)
         results: Dict[str, Any] = {}
         errors: List[str] = []
@@ -441,12 +505,14 @@ class MetaService:
                     creds=creds,
                     video_url=signed_url,
                     caption=caption,
+                    first_comment=first_comment,
                     poll_interval=poll_interval,
                     client=client,
                 )
                 item.ig_status = "PUBLISHED"
                 item.ig_media_id = ig_res["media_id"]
                 item.ig_url = ig_res["permalink"]
+                item.ig_comment_id = ig_res.get("comment_id")
                 item.ig_published_at = now
                 item.ig_error = None
                 results["instagram"] = ig_res
@@ -464,11 +530,13 @@ class MetaService:
                     filename=getattr(item, "file_name", None) or "rais_reel.mp4",
                     title=getattr(item, "video_title", "RAIS Agencies Promo"),
                     description=caption,
+                    first_comment=first_comment,
                     client=client,
                 )
                 item.fb_status = "PUBLISHED"
                 item.fb_video_id = fb_res["video_id"]
                 item.fb_url = fb_res["url"]
+                item.fb_comment_id = fb_res.get("comment_id")
                 item.fb_published_at = now
                 item.fb_error = None
                 results["facebook"] = fb_res

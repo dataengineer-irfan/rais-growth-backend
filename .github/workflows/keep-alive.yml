@@ -14,7 +14,8 @@ jobs:
   heartbeat:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Heartbeat to Render Backend
+      - name: Send Heartbeat & Run Drive Auto-Pilot
         run: |
-          echo "Sending 24/7 keep-alive ping..."
+          echo "Sending 24/7 keep-alive ping & triggering hands-free Drive auto-publish check..."
           curl -s -o /dev/null -w "Backend Status: %{http_code}\n" -m 45 https://rais-growth-backend.onrender.com/api/v1/google/status
+          curl -s -X POST -o /dev/null -w "Auto-Pilot Status: %{http_code}\n" -m 90 https://rais-growth-backend.onrender.com/api/v1/youtube/auto-run

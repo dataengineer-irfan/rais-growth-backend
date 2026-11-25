@@ -69,18 +69,25 @@ async def init_db():
                         ('fb_video_id', 'VARCHAR(100)'),
                         ('fb_url', 'VARCHAR(255)'),
                         ('fb_published_at', 'DATETIME'),
-                        ('fb_error', 'TEXT')
+                        ('fb_error', 'TEXT'),
+                        ('first_comment', 'TEXT'),
+                        ('ig_comment_id', 'VARCHAR(100)'),
+                        ('fb_comment_id', 'VARCHAR(100)'),
+                        ('ai_analyzed', 'BOOLEAN DEFAULT 0')
                     ]:
                         if col_name not in yq_cols:
                             sync_conn.execute(text(f"ALTER TABLE youtube_queue_items ADD COLUMN {col_name} {col_type}"))
 
-                # 4. Check youtube_drive_settings cross-platform flags
+                # 4. Check youtube_drive_settings cross-platform & auto-pilot flags
                 res_ys = sync_conn.execute(text("PRAGMA table_info(youtube_drive_settings)"))
                 ys_cols = [row[1] for row in res_ys.fetchall()]
                 if ys_cols:
                     for col_name, col_type in [
                         ('auto_publish_instagram', 'BOOLEAN DEFAULT 1'),
-                        ('auto_publish_facebook', 'BOOLEAN DEFAULT 1')
+                        ('auto_publish_facebook', 'BOOLEAN DEFAULT 1'),
+                        ('auto_post_immediately', 'BOOLEAN DEFAULT 1'),
+                        ('auto_first_comment', 'BOOLEAN DEFAULT 1'),
+                        ('encrypted_gemini_api_key', 'TEXT')
                     ]:
                         if col_name not in ys_cols:
                             sync_conn.execute(text(f"ALTER TABLE youtube_drive_settings ADD COLUMN {col_name} {col_type}"))

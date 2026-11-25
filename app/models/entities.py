@@ -333,6 +333,10 @@ class YouTubeQueueItem(Base):
     fb_url = Column(String(255), nullable=True)
     fb_published_at = Column(DateTime(timezone=True), nullable=True)
     fb_error = Column(Text, nullable=True)
+    first_comment = Column(Text, nullable=True)
+    ig_comment_id = Column(String(100), nullable=True)
+    fb_comment_id = Column(String(100), nullable=True)
+    ai_analyzed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class YouTubeDriveSetting(Base):
@@ -344,6 +348,9 @@ class YouTubeDriveSetting(Base):
     auto_publish_daily = Column(Boolean, default=True)
     auto_publish_instagram = Column(Boolean, default=True)
     auto_publish_facebook = Column(Boolean, default=True)
+    auto_post_immediately = Column(Boolean, default=True)
+    auto_first_comment = Column(Boolean, default=True)
+    encrypted_gemini_api_key = Column(Text, nullable=True)
     daily_publish_hour = Column(Integer, default=10)  # 10:00 AM IST
     is_connected = Column(Boolean, default=False)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
