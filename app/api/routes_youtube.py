@@ -1,10 +1,12 @@
 import datetime
 import json
-from typing import List, Optional, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus, GoogleConnection
 from app.schemas.schemas import (
@@ -12,9 +14,11 @@ from app.schemas.schemas import (
     YouTubeDriveSettingRead,
     YouTubeDriveSettingUpdate,
     YouTubeSyncResult,
-    YouTubePublishResult
+    YouTubePublishResult,
+    MetaPublishRequest,
 )
 from app.services.gbp_service import gbp_service
+from app.services.meta_service import MetaService
 
 router = APIRouter(prefix="/youtube", tags=["YouTube & Google Drive Automation"])
 
@@ -83,6 +87,8 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
             folder_id=DEFAULT_DRIVE_FOLDER_ID,
             folder_name=DEFAULT_DRIVE_FOLDER_NAME,
             auto_publish_daily=True,
+            auto_publish_instagram=True,
+            auto_publish_facebook=True,
             daily_publish_hour=10,
             is_connected=bool(DEFAULT_DRIVE_FOLDER_ID)
         )
@@ -101,6 +107,8 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         folder_id=setting.folder_id,
         folder_name=setting.folder_name,
         auto_publish_daily=setting.auto_publish_daily,
+        auto_publish_instagram=bool(setting.auto_publish_instagram),
+        auto_publish_facebook=bool(setting.auto_publish_facebook),
         daily_publish_hour=setting.daily_publish_hour,
         is_connected=setting.is_connected,
         oauth_connected=bool(token and has_scopes),
@@ -110,7 +118,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 
 @router.post("/settings", response_model=YouTubeDriveSettingRead)
 async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession = Depends(get_db)):
-    """Update Google Drive folder ID and YouTube daily automation preferences."""
+    """Update Google Drive folder ID and YouTube + Meta cross-posting automation preferences."""
     stmt = select(YouTubeDriveSetting).limit(1)
     setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
@@ -127,6 +135,10 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
         setting.folder_name = payload.folder_name
     if payload.auto_publish_daily is not None:
         setting.auto_publish_daily = payload.auto_publish_daily
+    if payload.auto_publish_instagram is not None:
+        setting.auto_publish_instagram = payload.auto_publish_instagram
+    if payload.auto_publish_facebook is not None:
+        setting.auto_publish_facebook = payload.auto_publish_facebook
     if payload.daily_publish_hour is not None:
         setting.daily_publish_hour = payload.daily_publish_hour
 
@@ -140,6 +152,8 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
         folder_id=setting.folder_id,
         folder_name=setting.folder_name,
         auto_publish_daily=setting.auto_publish_daily,
+        auto_publish_instagram=bool(setting.auto_publish_instagram),
+        auto_publish_facebook=bool(setting.auto_publish_facebook),
         daily_publish_hour=setting.daily_publish_hour,
         is_connected=setting.is_connected,
         oauth_connected=bool(token and has_scopes),
@@ -256,6 +270,27 @@ async def sync_google_drive(db: AsyncSession = Depends(get_db)):
     )
 
 
+async def download_drive_video_bytes(drive_file_id: str, db: AsyncSession) -> bytes:
+    """Downloads genuine video bytes from Google Drive API v3 using stored OAuth token."""
+    token, has_scopes = await _get_drive_youtube_token(db)
+    if not token or not has_scopes:
+        raise HTTPException(
+            status_code=400,
+            detail="Google OAuth authorization with Drive/YouTube scopes is required to fetch Drive videos."
+        )
+    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        drive_resp = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{drive_file_id}?alt=media",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if drive_resp.status_code != 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download video from Google Drive ({drive_resp.status_code})."
+            )
+        return drive_resp.content
+
+
 async def _upload_drive_file_to_youtube(item: YouTubeQueueItem, db: AsyncSession) -> YouTubePublishResult:
     """Downloads genuine video bytes from Google Drive and uploads to YouTube Data API v3."""
     token, has_scopes = await _get_drive_youtube_token(db)
@@ -284,20 +319,14 @@ async def _upload_drive_file_to_youtube(item: YouTubeQueueItem, db: AsyncSession
         }
     }
 
+    try:
+        video_bytes = await download_drive_video_bytes(item.drive_file_id, db)
+    except HTTPException:
+        item.status = YouTubeQueueStatus.FAILED
+        await db.commit()
+        raise
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # 1. Fetch binary video content from Google Drive
-        drive_resp = await client.get(
-            f"https://www.googleapis.com/drive/v3/files/{item.drive_file_id}?alt=media",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        if drive_resp.status_code != 200:
-            item.status = YouTubeQueueStatus.FAILED
-            await db.commit()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to download video from Google Drive ({drive_resp.status_code})."
-            )
-        video_bytes = drive_resp.content
 
         # 2. Initiate YouTube resumable upload
         init_resp = await client.post(
@@ -380,6 +409,106 @@ async def publish_specific_item(item_id: int, db: AsyncSession = Depends(get_db)
     if not item:
         raise HTTPException(status_code=404, detail="Queue item not found")
     return await _upload_drive_file_to_youtube(item, db)
+
+
+@router.get("/download-drive/{drive_file_id}")
+async def download_drive_video_for_share(drive_file_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Streams an authentic Google Drive MP4 video so WhatsApp Status (via mobile navigator.share)
+    or local download works safely without risky unofficial WhatsApp Web bots.
+    """
+    item = (
+        await db.execute(
+            select(YouTubeQueueItem).where(YouTubeQueueItem.drive_file_id == drive_file_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    raw_name = item.file_name if item and item.file_name else f"rais_promo_{drive_file_id}.mp4"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", raw_name)
+    if not safe_name.lower().endswith(".mp4"):
+        safe_name = f"{safe_name}.mp4"
+
+    video_bytes = await download_drive_video_bytes(drive_file_id, db)
+    return Response(
+        content=video_bytes,
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "Content-Length": str(len(video_bytes)),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/publish-multi/{item_id}")
+async def publish_item_multi_platform(
+    item_id: int,
+    payload: Optional[MetaPublishRequest] = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unified cross-platform publisher: dispatches one synced Drive video to selected channels
+    among YouTube Shorts, Instagram Reels (@raisfrozenfoods), and Facebook Page.
+    """
+    item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    if payload and payload.platforms:
+        targets = [p.strip().lower() for p in payload.platforms if p and p.strip()]
+    else:
+        setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
+        targets = []
+        if not setting or setting.auto_publish_daily:
+            targets.append("youtube")
+        if not setting or setting.auto_publish_instagram:
+            targets.append("instagram")
+        if not setting or setting.auto_publish_facebook:
+            targets.append("facebook")
+        if not targets:
+            targets = ["youtube", "instagram", "facebook"]
+
+    results: Dict[str, Any] = {}
+    errors: List[str] = []
+
+    if "youtube" in targets:
+        try:
+            yt_res = await _upload_drive_file_to_youtube(item, db)
+            results["youtube"] = {
+                "youtube_video_id": yt_res.youtube_video_id,
+                "youtube_url": yt_res.youtube_url,
+                "message": yt_res.message,
+            }
+        except HTTPException as exc:
+            errors.append(f"YouTube: {exc.detail}")
+        except Exception as exc:
+            errors.append(f"YouTube: {exc}")
+
+    meta_targets = [p for p in targets if p in ("instagram", "facebook")]
+    if meta_targets:
+        try:
+            meta_out = await MetaService.publish_queue_item(
+                db=db,
+                item=item,
+                platforms=meta_targets,
+                download_bytes_fn=download_drive_video_bytes,
+                base_url=settings.BACKEND_PUBLIC_URL or None,
+            )
+            results.update(meta_out.get("results") or {})
+            errors.extend(meta_out.get("errors") or [])
+        except (ValueError, RuntimeError) as exc:
+            errors.append(str(exc))
+
+    await db.refresh(item)
+    if errors and not results:
+        raise HTTPException(status_code=400, detail=" | ".join(errors))
+
+    return {
+        "status": "PARTIAL" if errors else "SUCCESS",
+        "item_id": item.id,
+        "results": results,
+        "errors": errors,
+        "item": YouTubeQueueItemRead.model_validate(item).model_dump(mode="json"),
+    }
 
 
 @router.get("/setup-guide")

@@ -322,6 +322,17 @@ class YouTubeQueueItem(Base):
     published_at = Column(DateTime(timezone=True), nullable=True)
     youtube_video_id = Column(String(100), nullable=True)
     youtube_url = Column(String(255), nullable=True)
+    # Cross-platform Meta (Instagram Reels & Facebook Page) tracking
+    ig_status = Column(String(50), default="PENDING")
+    ig_media_id = Column(String(100), nullable=True)
+    ig_url = Column(String(255), nullable=True)
+    ig_published_at = Column(DateTime(timezone=True), nullable=True)
+    ig_error = Column(Text, nullable=True)
+    fb_status = Column(String(50), default="PENDING")
+    fb_video_id = Column(String(100), nullable=True)
+    fb_url = Column(String(255), nullable=True)
+    fb_published_at = Column(DateTime(timezone=True), nullable=True)
+    fb_error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class YouTubeDriveSetting(Base):
@@ -331,6 +342,22 @@ class YouTubeDriveSetting(Base):
     folder_id = Column(String(100), nullable=True)
     folder_name = Column(String(150), default="RAIS_Daily_Promotion_Videos")
     auto_publish_daily = Column(Boolean, default=True)
+    auto_publish_instagram = Column(Boolean, default=True)
+    auto_publish_facebook = Column(Boolean, default=True)
     daily_publish_hour = Column(Integer, default=10)  # 10:00 AM IST
     is_connected = Column(Boolean, default=False)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
+
+class MetaConnection(Base):
+    __tablename__ = "meta_connections"
+
+    id = Column(Integer, primary_key=True)
+    page_id = Column(String(100), nullable=True)
+    page_name = Column(String(200), nullable=True)
+    ig_user_id = Column(String(100), nullable=True)
+    ig_username = Column(String(150), nullable=True)
+    encrypted_page_token = Column(Text, nullable=True)
+    is_connected = Column(Boolean, default=False)
+    token_verified_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

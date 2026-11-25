@@ -4,7 +4,7 @@ from typing import List
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAIS Local Growth Engine"
-    VERSION: str = "1.0.4"
+    VERSION: str = "1.1.0"
     API_V1_STR: str = "/api/v1"
     
     # Database
@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "https://rais-growth-backend.onrender.com/api/v1/google/callback"
     USE_MOCK_GBP: bool = True  # Automatically falls back to high-fidelity mock adapter when credentials are empty
+
+    # Meta Graph API Settings (Instagram Reels & Facebook Page)
+    META_PAGE_ACCESS_TOKEN: str = ""
+    META_PAGE_ID: str = ""
+    META_IG_USER_ID: str = ""
+    BACKEND_PUBLIC_URL: str = "https://rais-growth-backend.onrender.com"
     
     # LLM Settings (Provider Independent: mock, ollama, gemini, openai)
     LLM_PROVIDER: str = "template_engine"  # template_engine, gemini, ollama, openai

@@ -297,6 +297,16 @@ class YouTubeQueueItemRead(BaseModel):
     published_at: Optional[datetime] = None
     youtube_video_id: Optional[str] = None
     youtube_url: Optional[str] = None
+    ig_status: Optional[str] = "PENDING"
+    ig_media_id: Optional[str] = None
+    ig_url: Optional[str] = None
+    ig_published_at: Optional[datetime] = None
+    ig_error: Optional[str] = None
+    fb_status: Optional[str] = "PENDING"
+    fb_video_id: Optional[str] = None
+    fb_url: Optional[str] = None
+    fb_published_at: Optional[datetime] = None
+    fb_error: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -316,6 +326,8 @@ class YouTubeDriveSettingRead(BaseModel):
     folder_id: Optional[str] = None
     folder_name: str
     auto_publish_daily: bool
+    auto_publish_instagram: bool = True
+    auto_publish_facebook: bool = True
     daily_publish_hour: int
     is_connected: bool
     oauth_connected: bool = False
@@ -327,6 +339,8 @@ class YouTubeDriveSettingUpdate(BaseModel):
     folder_id: Optional[str] = None
     folder_name: Optional[str] = "RAIS_Daily_Promotion_Videos"
     auto_publish_daily: Optional[bool] = True
+    auto_publish_instagram: Optional[bool] = True
+    auto_publish_facebook: Optional[bool] = True
     daily_publish_hour: Optional[int] = 10
 
 class YouTubeSyncResult(BaseModel):
@@ -342,3 +356,23 @@ class YouTubePublishResult(BaseModel):
     youtube_url: Optional[str] = None
     video_title: Optional[str] = None
     message: str
+
+# ================= Meta Graph API (Instagram & Facebook) Schemas =================
+class MetaConnectRequest(BaseModel):
+    access_token: str
+    page_id: Optional[str] = None
+    ig_user_id: Optional[str] = None
+
+class MetaStatusResponse(BaseModel):
+    status: str  # NOT_CONNECTED | CONNECTED | TOKEN_INVALID
+    connected: bool
+    page_id: Optional[str] = None
+    page_name: Optional[str] = None
+    ig_user_id: Optional[str] = None
+    ig_username: Optional[str] = None
+    source: str  # env | database | none
+    message: str
+    token_verified_at: Optional[datetime] = None
+
+class MetaPublishRequest(BaseModel):
+    platforms: List[str] = ["instagram", "facebook"]

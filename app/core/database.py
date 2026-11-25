@@ -54,6 +54,36 @@ async def init_db():
                     ]:
                         if col_name not in g_cols:
                             sync_conn.execute(text(f"ALTER TABLE google_connections ADD COLUMN {col_name} {col_type}"))
+
+                # 3. Check youtube_queue_items cross-platform columns
+                res_yq = sync_conn.execute(text("PRAGMA table_info(youtube_queue_items)"))
+                yq_cols = [row[1] for row in res_yq.fetchall()]
+                if yq_cols:
+                    for col_name, col_type in [
+                        ('ig_status', "VARCHAR(50) DEFAULT 'PENDING'"),
+                        ('ig_media_id', 'VARCHAR(100)'),
+                        ('ig_url', 'VARCHAR(255)'),
+                        ('ig_published_at', 'DATETIME'),
+                        ('ig_error', 'TEXT'),
+                        ('fb_status', "VARCHAR(50) DEFAULT 'PENDING'"),
+                        ('fb_video_id', 'VARCHAR(100)'),
+                        ('fb_url', 'VARCHAR(255)'),
+                        ('fb_published_at', 'DATETIME'),
+                        ('fb_error', 'TEXT')
+                    ]:
+                        if col_name not in yq_cols:
+                            sync_conn.execute(text(f"ALTER TABLE youtube_queue_items ADD COLUMN {col_name} {col_type}"))
+
+                # 4. Check youtube_drive_settings cross-platform flags
+                res_ys = sync_conn.execute(text("PRAGMA table_info(youtube_drive_settings)"))
+                ys_cols = [row[1] for row in res_ys.fetchall()]
+                if ys_cols:
+                    for col_name, col_type in [
+                        ('auto_publish_instagram', 'BOOLEAN DEFAULT 1'),
+                        ('auto_publish_facebook', 'BOOLEAN DEFAULT 1')
+                    ]:
+                        if col_name not in ys_cols:
+                            sync_conn.execute(text(f"ALTER TABLE youtube_drive_settings ADD COLUMN {col_name} {col_type}"))
             except Exception:
                 pass
 
