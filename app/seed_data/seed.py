@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.config import settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_token, encrypt_token
 from app.models.entities import (
     BusinessProfile, CatalogSKU, ServiceArea, Campaign, CampaignPost,
     KeywordTarget, CompetitorSnapshot, AutomationSetting, PostStatus, VerificationStatus,
@@ -677,5 +677,24 @@ async def seed_initial_data(db: AsyncSession):
             conn.is_connected = False
             conn.encrypted_access_token = None
             conn.last_sync = None
+
+    # Optional persistent Google OAuth seed via GOOGLE_REFRESH_TOKEN env var (survives ephemeral container restarts)
+    if (
+        settings.GOOGLE_REFRESH_TOKEN
+        and settings.GOOGLE_CLIENT_ID
+        and settings.GOOGLE_CLIENT_SECRET
+        and (not conn or not conn.encrypted_refresh_token)
+    ):
+        if not conn:
+            conn = GoogleConnection(
+                account_id="accounts/106201059585451801696",
+                location_id="locations/17901714523973178723",
+                location_name="RAIS Agencies",
+            )
+            db.add(conn)
+        conn.encrypted_refresh_token = encrypt_token(settings.GOOGLE_REFRESH_TOKEN.strip())
+        conn.scopes_granted = settings.GOOGLE_SCOPES
+        conn.token_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
+        conn.is_connected = True
 
     await db.commit()

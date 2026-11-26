@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "https://rais-growth-backend.onrender.com/api/v1/google/callback"
+    GOOGLE_REFRESH_TOKEN: str = ""
+    GOOGLE_SCOPES: str = "https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/youtube.upload"
     USE_MOCK_GBP: bool = True  # Automatically falls back to high-fidelity mock adapter when credentials are empty
 
     # Meta Graph API Settings (Instagram Reels & Facebook Page)

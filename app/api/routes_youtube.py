@@ -136,7 +136,11 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
     stmt = select(YouTubeDriveSetting).limit(1)
     setting = (await db.execute(stmt)).scalar_one_or_none()
     if not setting:
-        setting = YouTubeDriveSetting()
+        setting = YouTubeDriveSetting(
+            folder_id=DEFAULT_DRIVE_FOLDER_ID,
+            folder_name=DEFAULT_DRIVE_FOLDER_NAME,
+            is_connected=bool(DEFAULT_DRIVE_FOLDER_ID),
+        )
         db.add(setting)
 
     if payload.folder_id is not None:

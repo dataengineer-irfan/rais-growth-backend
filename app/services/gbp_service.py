@@ -344,10 +344,10 @@ class GBPService:
             res = await db.execute(stmt)
             conn = res.scalar_one_or_none()
 
-        if not conn or not conn.encrypted_access_token or not conn.is_connected:
+        if not conn or not conn.is_connected or (not conn.encrypted_access_token and not conn.encrypted_refresh_token):
             return None
 
-        plain_access = decrypt_token(conn.encrypted_access_token)
+        plain_access = decrypt_token(conn.encrypted_access_token) if conn.encrypted_access_token else None
         if plain_access and plain_access.startswith("ya29.live_authorized_persisted"):
             conn.is_connected = False
             conn.encrypted_access_token = None
