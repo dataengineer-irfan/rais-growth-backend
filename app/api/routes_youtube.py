@@ -717,7 +717,7 @@ async def _run_autopilot_background_task() -> None:
         pass
 
 
-@router.post("/auto-run")
+@router.api_route("/auto-run", methods=["GET", "POST"])
 async def trigger_autopilot_run(
     background: bool = Query(
         default=False,
