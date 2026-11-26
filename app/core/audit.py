@@ -14,7 +14,7 @@ class AuditLog(Base):
     resource_id = Column(String(100), nullable=True)
     details = Column(Text, nullable=True)
     ip_address = Column(String(50), nullable=True)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 async def log_audit(
     db: AsyncSession,

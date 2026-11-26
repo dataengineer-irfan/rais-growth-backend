@@ -72,7 +72,7 @@ class BusinessProfile(Base):
     primary_category = Column(String(100), default="Wholesale food store")
     secondary_categories = Column(Text, default="Frozen food store, Restaurant supply store, Packaging supply store, Food products supplier")
     description = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class CatalogSKU(Base):
     __tablename__ = "catalog_skus"
@@ -110,7 +110,7 @@ class GoogleConnection(Base):
     account_email = Column(String(200), nullable=True)
     encrypted_access_token = Column(Text, nullable=True)
     encrypted_refresh_token = Column(Text, nullable=True)
-    token_expiry = Column(DateTime, nullable=True)
+    token_expiry = Column(DateTime(timezone=True), nullable=True)
     is_connected = Column(Boolean, default=False)
     is_mock = Column(Boolean, default=True)
     account_id = Column(String(100), nullable=True)
@@ -118,17 +118,17 @@ class GoogleConnection(Base):
     location_id = Column(String(100), nullable=True)
     location_name = Column(String(200), nullable=True)
     scopes_granted = Column(Text, nullable=True)
-    last_sync = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_sync = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class OAuthState(Base):
     __tablename__ = "oauth_states"
 
     id = Column(Integer, primary_key=True)
     state = Column(String(128), unique=True, index=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     is_used = Column(Boolean, default=False)
 
 class BusinessLocation(Base):
@@ -156,8 +156,8 @@ class Campaign(Base):
     theme = Column(String(100), nullable=True)
     status = Column(SQLEnum(PostStatus), default=PostStatus.DRAFT, index=True)
     is_approved_by_user = Column(Boolean, default=False)
-    approved_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     posts = relationship("CampaignPost", back_populates="campaign", cascade="all, delete-orphan")
 
@@ -174,8 +174,8 @@ class CampaignPost(Base):
     target_product_sku = Column(String(50), nullable=True)
     media_url = Column(String(500), nullable=True)
     status = Column(SQLEnum(PostStatus), default=PostStatus.DRAFT, index=True)
-    scheduled_for = Column(DateTime, nullable=True, index=True)
-    published_at = Column(DateTime, nullable=True)
+    scheduled_for = Column(DateTime(timezone=True), nullable=True, index=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
     idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
     google_post_id = Column(String(100), nullable=True)
     verification_status = Column(SQLEnum(VerificationStatus), default=VerificationStatus.UNVERIFIED_DRAFT)
@@ -189,12 +189,12 @@ class PublishingJob(Base):
 
     id = Column(Integer, primary_key=True)
     post_id = Column(Integer, ForeignKey("campaign_posts.id"), nullable=False)
-    scheduled_time = Column(DateTime, nullable=False, index=True)
+    scheduled_time = Column(DateTime(timezone=True), nullable=False, index=True)
     status = Column(SQLEnum(PostStatus), default=PostStatus.SCHEDULED, index=True)
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     last_error = Column(Text, nullable=True)
-    published_time = Column(DateTime, nullable=True)
+    published_time = Column(DateTime(timezone=True), nullable=True)
     idempotency_token = Column(String(100), unique=True, nullable=False)
 
     post = relationship("CampaignPost", back_populates="publishing_jobs")
@@ -210,7 +210,7 @@ class Review(Base):
     author_photo_url = Column(String(500), nullable=True)
     rating = Column(Integer, nullable=False, index=True)
     comment = Column(Text, nullable=True)
-    create_time = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    create_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     sentiment = Column(SQLEnum(SentimentType), default=SentimentType.POSITIVE)
     is_complaint = Column(Boolean, default=False)
     has_replied = Column(Boolean, default=False)
@@ -227,8 +227,8 @@ class ReviewReplyDraft(Base):
     reply_telugu = Column(Text, nullable=True)
     is_approved = Column(Boolean, default=False, nullable=False)  # Explicit human approval requirement
     approved_by = Column(String(100), nullable=True)
-    approved_at = Column(DateTime, nullable=True)
-    published_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(50), default="PENDING_APPROVAL")
 
     review = relationship("Review", back_populates="reply_drafts")
@@ -273,7 +273,7 @@ class B2BLead(Base):
     status = Column(SQLEnum(LeadStatus), default=LeadStatus.NEW, index=True)
     lead_source = Column(String(100), default="Google Business Profile")
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 # ==================== Media Assets ====================
 
@@ -287,7 +287,7 @@ class MediaAsset(Base):
     category = Column(String(100), default="Snacks")
     caption = Column(Text, nullable=True)
     is_verified_real_shop_photo = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 # ==================== Automation Control Settings ====================
 
@@ -302,7 +302,7 @@ class AutomationSetting(Base):
     auto_generate_drafts = Column(Boolean, default=True)
     require_explicit_campaign_approval = Column(Boolean, default=True)
     require_explicit_review_approval = Column(Boolean, default=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 # ==================== YouTube & Google Drive Automation ====================
 
