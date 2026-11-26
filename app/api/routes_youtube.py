@@ -1,13 +1,15 @@
+import asyncio
 import datetime
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from weakref import WeakKeyDictionary
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.security import encrypt_token
 from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus, GoogleConnection
 from app.schemas.schemas import (
@@ -681,10 +683,62 @@ async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
     }
 
 
+_autopilot_locks: "WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = WeakKeyDictionary()
+
+
+def _get_autopilot_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _autopilot_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _autopilot_locks[loop] = lock
+    return lock
+
+
+async def _run_autopilot_locked(db: AsyncSession) -> Dict[str, Any]:
+    lock = _get_autopilot_lock()
+    if lock.locked():
+        return {
+            "status": "ALREADY_RUNNING",
+            "message": "Auto-Pilot cycle is already executing in background.",
+            "new_videos_found": 0,
+            "published_items": [],
+            "errors": [],
+        }
+    async with lock:
+        return await run_autopilot_cycle(db)
+
+
+async def _run_autopilot_background_task() -> None:
+    try:
+        async with AsyncSessionLocal() as bg_db:
+            await _run_autopilot_locked(bg_db)
+    except Exception:
+        pass
+
+
 @router.post("/auto-run")
-async def trigger_autopilot_run(db: AsyncSession = Depends(get_db)):
+async def trigger_autopilot_run(
+    background: bool = Query(
+        default=False,
+        description="Set true for external cron triggers (e.g. cron-job.org) so HTTP responds immediately while publishing runs asynchronously.",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
     """Runs the full hands-free Drive Scan -> AI Hook/Comment Generation -> Multi-Platform Publish cycle."""
-    return await run_autopilot_cycle(db)
+    if background:
+        lock = _get_autopilot_lock()
+        if lock.locked():
+            return {
+                "status": "ALREADY_RUNNING",
+                "message": "Auto-Pilot cycle is already running in background.",
+            }
+        asyncio.create_task(_run_autopilot_background_task())
+        return {
+            "status": "SCHEDULED_IN_BACKGROUND",
+            "message": "Drive Auto-Pilot scan & publish started asynchronously.",
+        }
+    return await _run_autopilot_locked(db)
 
 
 @router.post("/publish-multi/{item_id}")

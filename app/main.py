@@ -13,7 +13,7 @@ from app.api.routes_google import router as google_router
 from app.api.routes_seo import router as seo_router
 from app.api.routes_leads import router as leads_router
 from app.api.routes_automation import router as automation_router
-from app.api.routes_youtube import router as youtube_router, run_autopilot_cycle
+from app.api.routes_youtube import router as youtube_router, _run_autopilot_locked
 from app.api.routes_meta import router as meta_router
 
 
@@ -23,7 +23,7 @@ async def _drive_autopilot_loop():
         try:
             await asyncio.sleep(180)
             async with AsyncSessionLocal() as session:
-                await run_autopilot_cycle(session)
+                await _run_autopilot_locked(session)
         except asyncio.CancelledError:
             break
         except Exception:
