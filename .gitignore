@@ -13,3 +13,5 @@ static/images/
 static/assets/products/
 static/assets/hercules/
 *.pptx
+.neon
+node_modules/

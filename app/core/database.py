@@ -31,6 +31,8 @@ def normalize_async_db_url(raw_url: str) -> tuple[str, Dict[str, Any]]:
                 filtered.append((k, v))
         if needs_ssl or any(h in (parsed.hostname or "") for h in ("neon.tech", "supabase.co", "render.com")):
             connect_args["ssl"] = "require"
+        if "-pooler" in (parsed.hostname or ""):
+            connect_args["statement_cache_size"] = 0
         url = urlunparse(parsed._replace(query=urlencode(filtered)))
 
     return url, connect_args
