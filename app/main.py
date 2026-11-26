@@ -15,6 +15,9 @@ from app.api.routes_leads import router as leads_router
 from app.api.routes_automation import router as automation_router
 from app.api.routes_youtube import router as youtube_router, _run_autopilot_locked
 from app.api.routes_meta import router as meta_router
+from app.api.routes_auth import router as auth_router
+from app.api.routes_media import router as media_router
+from app.api.routes_analytics import router as analytics_router
 
 
 async def _drive_autopilot_loop():
@@ -67,6 +70,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # API Routers
+app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(business_info_router, prefix=settings.API_V1_STR)
 app.include_router(campaigns_router, prefix=settings.API_V1_STR)
 app.include_router(reviews_router, prefix=settings.API_V1_STR)
@@ -76,6 +80,8 @@ app.include_router(leads_router, prefix=settings.API_V1_STR)
 app.include_router(automation_router, prefix=settings.API_V1_STR)
 app.include_router(youtube_router, prefix=settings.API_V1_STR)
 app.include_router(meta_router, prefix=settings.API_V1_STR)
+app.include_router(media_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

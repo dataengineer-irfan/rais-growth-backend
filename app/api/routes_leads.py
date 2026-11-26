@@ -3,13 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.models.entities import B2BLead
 from app.schemas.schemas import B2BLeadRead, B2BLeadCreate, B2BLeadUpdate
 from app.core.audit import log_audit
 
 router = APIRouter(prefix="/leads", tags=["B2B Lead Management"])
 
-@router.get("", response_model=List[B2BLeadRead])
+@router.get("", response_model=List[B2BLeadRead], dependencies=[Depends(require_admin)])
 async def list_leads(db: AsyncSession = Depends(get_db)):
     """List all commercial leads."""
     stmt = select(B2BLead).order_by(B2BLead.created_at.desc())
@@ -18,7 +19,7 @@ async def list_leads(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=B2BLeadRead)
 async def create_lead(data: B2BLeadCreate, db: AsyncSession = Depends(get_db)):
-    """Add a new commercial kitchen inquiry."""
+    """Add a new commercial kitchen inquiry (callable from public storefront quote builder or admin CRM)."""
     new_lead = B2BLead(**data.model_dump())
     db.add(new_lead)
     await db.commit()
@@ -33,7 +34,7 @@ async def create_lead(data: B2BLeadCreate, db: AsyncSession = Depends(get_db)):
     )
     return new_lead
 
-@router.put("/{lead_id}", response_model=B2BLeadRead)
+@router.put("/{lead_id}", response_model=B2BLeadRead, dependencies=[Depends(require_admin)])
 async def update_lead(lead_id: int, data: B2BLeadUpdate, db: AsyncSession = Depends(get_db)):
     """Update lead status or follow-up notes."""
     stmt = select(B2BLead).where(B2BLead.id == lead_id)
@@ -48,7 +49,7 @@ async def update_lead(lead_id: int, data: B2BLeadUpdate, db: AsyncSession = Depe
     await db.refresh(lead)
     return lead
 
-@router.post("/{lead_id}/trigger-review-request")
+@router.post("/{lead_id}/trigger-review-request", dependencies=[Depends(require_admin)])
 async def trigger_lead_review_request(lead_id: int, db: AsyncSession = Depends(get_db)):
     """
     Automated Post-Order Review Velocity Engine (Google Prominence):

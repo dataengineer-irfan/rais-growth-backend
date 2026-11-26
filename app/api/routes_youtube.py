@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
-from app.core.security import encrypt_token
+from app.core.security import encrypt_token, require_admin, verify_cron_or_admin
 from app.models.entities import YouTubeQueueItem, YouTubeDriveSetting, YouTubeQueueStatus, GoogleConnection
 from app.schemas.schemas import (
     YouTubeQueueItemRead,
@@ -103,7 +103,7 @@ async def _serialize_drive_settings(setting: YouTubeDriveSetting, db: AsyncSessi
     )
 
 
-@router.get("/settings", response_model=YouTubeDriveSettingRead)
+@router.get("/settings", response_model=YouTubeDriveSettingRead, dependencies=[Depends(require_admin)])
 async def get_settings(db: AsyncSession = Depends(get_db)):
     """Fetch current Google Drive folder configuration, Auto-Pilot toggles & OAuth connectivity."""
     stmt = select(YouTubeDriveSetting).limit(1)
@@ -132,7 +132,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     return await _serialize_drive_settings(setting, db)
 
 
-@router.post("/settings", response_model=YouTubeDriveSettingRead)
+@router.post("/settings", response_model=YouTubeDriveSettingRead, dependencies=[Depends(require_admin)])
 async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession = Depends(get_db)):
     """Update Google Drive folder ID, Gemini Video AI key & multi-platform auto-pilot preferences."""
     stmt = select(YouTubeDriveSetting).limit(1)
@@ -176,7 +176,7 @@ async def update_settings(payload: YouTubeDriveSettingUpdate, db: AsyncSession =
     return await _serialize_drive_settings(setting, db)
 
 
-@router.patch("/queue/{item_id}", response_model=YouTubeQueueItemRead)
+@router.patch("/queue/{item_id}", response_model=YouTubeQueueItemRead, dependencies=[Depends(require_admin)])
 async def update_queue_item(
     item_id: int, payload: YouTubeQueueItemUpdate, db: AsyncSession = Depends(get_db)
 ):
@@ -203,7 +203,7 @@ async def update_queue_item(
     return item
 
 
-@router.post("/queue/{item_id}/analyze", response_model=YouTubeQueueItemRead)
+@router.post("/queue/{item_id}/analyze", response_model=YouTubeQueueItemRead, dependencies=[Depends(require_admin)])
 async def analyze_queue_item_video(item_id: int, db: AsyncSession = Depends(get_db)):
     """Re-analyzes a queued Drive MP4 (using Gemini Video Vision if configured) and upgrades viral hook + comment."""
     item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
@@ -236,7 +236,7 @@ async def analyze_queue_item_video(item_id: int, db: AsyncSession = Depends(get_
     return item
 
 
-@router.get("/queue", response_model=List[YouTubeQueueItemRead])
+@router.get("/queue", response_model=List[YouTubeQueueItemRead], dependencies=[Depends(require_admin)])
 async def list_queue(db: AsyncSession = Depends(get_db)):
     """List all queued and published YouTube videos from real Drive syncs."""
     stmt = select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc())
@@ -244,7 +244,7 @@ async def list_queue(db: AsyncSession = Depends(get_db)):
     return list(res.scalars().all())
 
 
-@router.delete("/queue/clear")
+@router.delete("/queue/clear", dependencies=[Depends(require_admin)])
 async def clear_queue(db: AsyncSession = Depends(get_db)):
     """Wipes all items from the YouTube queue."""
     await db.execute(delete(YouTubeQueueItem))
@@ -252,7 +252,20 @@ async def clear_queue(db: AsyncSession = Depends(get_db)):
     return {"status": "SUCCESS", "message": "Queue cleared completely."}
 
 
-@router.post("/sync-drive", response_model=YouTubeSyncResult)
+@router.delete("/queue/{item_id}", dependencies=[Depends(require_admin)])
+async def delete_queue_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    """Deletes a single video entry from the multi-platform queue."""
+    item = (
+        await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    await db.delete(item)
+    await db.commit()
+    return {"status": "DELETED", "id": item_id, "message": "Queue item removed."}
+
+
+@router.post("/sync-drive", response_model=YouTubeSyncResult, dependencies=[Depends(require_admin)])
 async def sync_google_drive(db: AsyncSession = Depends(get_db)):
     """
     Scans the configured Google Drive folder via Google Drive API v3 for MP4/MOV/WEBM files
@@ -486,7 +499,7 @@ async def _upload_drive_file_to_youtube(item: YouTubeQueueItem, db: AsyncSession
         )
 
 
-@router.post("/publish-next", response_model=YouTubePublishResult)
+@router.post("/publish-next", response_model=YouTubePublishResult, dependencies=[Depends(require_admin)])
 async def publish_next_video(db: AsyncSession = Depends(get_db)):
     """Uploads the next genuinely queued Drive video to YouTube via YouTube Data API v3."""
     stmt = (
@@ -504,7 +517,7 @@ async def publish_next_video(db: AsyncSession = Depends(get_db)):
     return await _upload_drive_file_to_youtube(next_item, db)
 
 
-@router.post("/publish-item/{item_id}", response_model=YouTubePublishResult)
+@router.post("/publish-item/{item_id}", response_model=YouTubePublishResult, dependencies=[Depends(require_admin)])
 async def publish_specific_item(item_id: int, db: AsyncSession = Depends(get_db)):
     """Immediately uploads a specific queued Drive video to YouTube Data API v3."""
     item = (await db.execute(select(YouTubeQueueItem).where(YouTubeQueueItem.id == item_id))).scalar_one_or_none()
@@ -513,7 +526,7 @@ async def publish_specific_item(item_id: int, db: AsyncSession = Depends(get_db)
     return await _upload_drive_file_to_youtube(item, db)
 
 
-@router.get("/download-drive/{drive_file_id}")
+@router.get("/download-drive/{drive_file_id}", dependencies=[Depends(require_admin)])
 async def download_drive_video_for_share(drive_file_id: str, db: AsyncSession = Depends(get_db)):
     """
     Streams an authentic Google Drive MP4 video so WhatsApp Status (via mobile navigator.share)
@@ -603,7 +616,9 @@ async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
     Zero-manual full automation cycle:
     1) Checks Emergency Kill Switch.
     2) Scans Google Drive for newly uploaded videos and runs VideoAIService hook/caption/comment generation.
-    3) Automatically publishes any pending videos to enabled channels (YouTube, IG Reels + First Comment, FB + First Comment).
+    3) In Instant Auto-Pilot (auto_post_immediately=True), publishes pending items immediately;
+       in Daily Cadence Mode (auto_post_immediately=False), publishes 1 video per day once daily_publish_hour (IST) arrives.
+    4) When live Google Business Profile API is enabled (USE_MOCK_GBP=False), syncs GBP reviews & due campaign posts.
     """
     if await SchedulerService().check_kill_switch(db):
         return {
@@ -614,17 +629,57 @@ async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
             "errors": [],
         }
 
+    # Optional cloud GBP sync & scheduled post execution (never fires in mock/demo mode)
+    if not settings.USE_MOCK_GBP:
+        try:
+            from app.services.review_service import review_service
+            await review_service.sync_reviews_from_gbp(db)
+            await SchedulerService().execute_publishing_cycle(db)
+        except Exception:
+            pass
+
     sync_res = await sync_google_drive(db)
     setting = (await db.execute(select(YouTubeDriveSetting).limit(1))).scalar_one_or_none()
     auto_immediate = True if not setting or setting.auto_post_immediately is None else bool(setting.auto_post_immediately)
+    daily_enabled = True if not setting or setting.auto_publish_daily is None else bool(setting.auto_publish_daily)
+
+    all_items = list(
+        (await db.execute(select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc()))).scalars().all()
+    )
+
     if not auto_immediate:
-        return {
-            "status": "SYNCED_ONLY",
-            "message": sync_res.message,
-            "new_videos_found": sync_res.new_videos_found,
-            "published_items": [],
-            "errors": [],
-        }
+        if not daily_enabled:
+            return {
+                "status": "SYNCED_ONLY",
+                "message": sync_res.message,
+                "new_videos_found": sync_res.new_videos_found,
+                "published_items": [],
+                "errors": [],
+            }
+        ist_offset = datetime.timedelta(hours=5, minutes=30)
+        ist_now = datetime.datetime.now(datetime.timezone.utc) + ist_offset
+        target_hour = setting.daily_publish_hour if setting and setting.daily_publish_hour is not None else 10
+        today_ist = ist_now.date()
+
+        def _was_published_today(it: YouTubeQueueItem) -> bool:
+            for ts in (it.published_at, it.ig_published_at, it.fb_published_at):
+                if ts is not None:
+                    ts_aware = ts if ts.tzinfo is not None else ts.replace(tzinfo=datetime.timezone.utc)
+                    if (ts_aware + ist_offset).date() == today_ist:
+                        return True
+            return False
+
+        if ist_now.hour < target_hour or any(_was_published_today(it) for it in all_items):
+            return {
+                "status": "SYNCED_ONLY",
+                "message": (
+                    f"{sync_res.message} Daily cadence scheduled for {target_hour:02d}:00 IST "
+                    f"(current IST: {ist_now.strftime('%H:%M')})."
+                ),
+                "new_videos_found": sync_res.new_videos_found,
+                "published_items": [],
+                "errors": [],
+            }
 
     targets = _resolve_enabled_channels(setting)
     token, has_scopes = await _get_drive_youtube_token(db)
@@ -648,11 +703,9 @@ async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
             "errors": [],
         }
 
-    all_items = list(
-        (await db.execute(select(YouTubeQueueItem).order_by(YouTubeQueueItem.id.asc()))).scalars().all()
-    )
     published_items: List[Dict[str, Any]] = []
     errors: List[str] = []
+    max_per_cycle = len(all_items) if auto_immediate else 1
 
     for item in all_items:
         needs_yt = "youtube" in runnable_targets and item.status == YouTubeQueueStatus.QUEUED
@@ -669,6 +722,8 @@ async def run_autopilot_cycle(db: AsyncSession) -> Dict[str, Any]:
             published_items.append({"item_id": item.id, "title": item.video_title, "results": outcome["results"]})
         if outcome["errors"]:
             errors.extend([f"#{item.id}: {e}" for e in outcome["errors"]])
+        if len(published_items) >= max_per_cycle:
+            break
 
     return {
         "status": "PARTIAL" if (errors and published_items) else ("ERROR" if errors else "SUCCESS"),
@@ -717,7 +772,7 @@ async def _run_autopilot_background_task() -> None:
         pass
 
 
-@router.api_route("/auto-run", methods=["GET", "POST"])
+@router.api_route("/auto-run", methods=["GET", "POST"], dependencies=[Depends(verify_cron_or_admin)])
 async def trigger_autopilot_run(
     background: bool = Query(
         default=False,
@@ -741,7 +796,7 @@ async def trigger_autopilot_run(
     return await _run_autopilot_locked(db)
 
 
-@router.post("/publish-multi/{item_id}")
+@router.post("/publish-multi/{item_id}", dependencies=[Depends(require_admin)])
 async def publish_item_multi_platform(
     item_id: int,
     payload: Optional[MetaPublishRequest] = Body(default=None),
@@ -777,7 +832,7 @@ async def publish_item_multi_platform(
     }
 
 
-@router.get("/setup-guide")
+@router.get("/setup-guide", dependencies=[Depends(require_admin)])
 async def get_setup_guide():
     """Returns official step-by-step setup instructions for Google Cloud Console and Drive."""
     return {

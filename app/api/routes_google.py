@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.services.gbp_service import gbp_service
 from app.schemas.schemas import GoogleAuthorizeResponse, GoogleStatusResponse
 
 router = APIRouter(prefix="/google", tags=["Google Business Profile API"])
 
-@router.get("/authorize", response_model=GoogleAuthorizeResponse)
+@router.get("/authorize", response_model=GoogleAuthorizeResponse, dependencies=[Depends(require_admin)])
 async def get_authorization_url(
     include_youtube: bool = Query(False, description="Include Google Drive and YouTube upload OAuth scopes"),
     db: AsyncSession = Depends(get_db)
@@ -82,17 +83,17 @@ async def oauth_callback(
             status_code=302
         )
 
-@router.get("/status", response_model=GoogleStatusResponse)
+@router.get("/status", response_model=GoogleStatusResponse, dependencies=[Depends(require_admin)])
 async def get_connection_status(db: AsyncSession = Depends(get_db)):
     """Check Google Business Profile API connection health and authorized location."""
     return await gbp_service.get_connection_status(db=db)
 
-@router.get("/locations")
+@router.get("/locations", dependencies=[Depends(require_admin)])
 async def list_locations(db: AsyncSession = Depends(get_db)):
     """Discover locations under authorized Google account."""
     return await gbp_service.list_locations(db=db)
 
-@router.get("/performance")
+@router.get("/performance", dependencies=[Depends(require_admin)])
 async def get_performance(
     force_state: Optional[str] = Query(
         None,

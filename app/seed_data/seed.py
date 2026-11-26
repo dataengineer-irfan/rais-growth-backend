@@ -697,4 +697,16 @@ async def seed_initial_data(db: AsyncSession):
         conn.token_expiry = datetime.now(timezone.utc) - timedelta(minutes=5)
         conn.is_connected = True
 
+    # 10. Seed Backend-Persisted Admin Account (never relies on client-side passkey validation)
+    from app.models.entities import AdminAccount
+    from app.core.security import hash_password
+    adm_res = await db.execute(select(AdminAccount).where(AdminAccount.username == "admin"))
+    if not adm_res.scalar_one_or_none():
+        db.add(
+            AdminAccount(
+                username="admin",
+                hashed_passkey=hash_password(settings.ADMIN_PASSKEY or "RAIS@516269"),
+            )
+        )
+
     await db.commit()

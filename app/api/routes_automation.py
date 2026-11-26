@@ -3,12 +3,17 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.core.audit import AuditLog
 from app.models.entities import AutomationSetting
 from app.schemas.schemas import AutomationSettingRead, AutomationSettingUpdate
 from app.services.scheduler_service import scheduler_service
 
-router = APIRouter(prefix="/automation", tags=["Automation Control Center"])
+router = APIRouter(
+    prefix="/automation",
+    tags=["Automation Control Center"],
+    dependencies=[Depends(require_admin)],
+)
 
 @router.get("/settings", response_model=AutomationSettingRead)
 async def get_settings(db: AsyncSession = Depends(get_db)):

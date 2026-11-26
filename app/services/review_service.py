@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
+import json
 from typing import Dict, Any, List, Optional
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.entities import Review, ReviewReplyDraft, SentimentType, ReviewOrigin, ReplyStatus
 from app.core.audit import log_audit
+from app.core.config import settings
 from app.services.gbp_service import gbp_service
+from app.services.video_ai_service import VideoAIService
 
 class ReviewService:
     """Customer Review Automation with Mandatory Explicit Human Approval Gate."""
@@ -99,7 +103,7 @@ class ReviewService:
 
                 # Generate bilingual response draft (PENDING APPROVAL)
                 if not new_rev.has_replied:
-                    draft = self.generate_response_draft(new_rev)
+                    draft = await self.generate_ai_response_draft(db, new_rev)
                     draft_obj = ReviewReplyDraft(
                         review_id=new_rev.id,
                         reply_english=draft["english"],
@@ -196,6 +200,85 @@ class ReviewService:
             )
 
         return {"english": english, "telugu": telugu}
+
+    async def generate_ai_response_draft(self, db: AsyncSession, review: Review) -> Dict[str, str]:
+        """
+        Generates a contextual bilingual English + Telugu reply using Gemini AI when configured,
+        falling back cleanly to template drafts when no Gemini key is available or on API error.
+        """
+        fallback = self.generate_response_draft(review)
+        gemini_key = await VideoAIService.resolve_gemini_key(db)
+        if not gemini_key:
+            return {**fallback, "engine": "template_fallback"}
+
+        prompt = (
+            "Write a warm, sincere Google Maps owner reply in BOTH English and Telugu for RAIS Agencies "
+            f"({settings.VERIFIED_ADDRESS}, WhatsApp/Phone: {settings.VERIFIED_PHONE}).\n"
+            f"Reviewer name: {review.author_name or 'Valued Partner'}\n"
+            f"Rating: {review.rating}/5 stars\n"
+            f"Review comment: {review.comment or 'No written comment'}\n"
+            f"Is complaint: {bool(review.is_complaint)}\n\n"
+            "Rules:\n"
+            "- Acknowledge what the customer specifically praised or raised in their review.\n"
+            f"- NEVER mention prices or any phone number other than {settings.VERIFIED_PHONE}.\n"
+            "- Return STRICT JSON with exactly two string keys: \"english\" and \"telugu\"."
+        )
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.4},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                for model in VideoAIService.GEMINI_MODELS:
+                    url = VideoAIService.GEMINI_ENDPOINT_TEMPLATE.format(model=model)
+                    resp = await client.post(url, params={"key": gemini_key}, json=body)
+                    if resp.status_code == 200:
+                        text = (
+                            resp.json()
+                            .get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [{}])[0]
+                            .get("text", "{}")
+                        )
+                        parsed = json.loads(text)
+                        if isinstance(parsed, list) and parsed:
+                            parsed = parsed[0]
+                        if isinstance(parsed, dict) and parsed.get("english") and parsed.get("telugu"):
+                            return {
+                                "english": str(parsed["english"]).strip()[:1200],
+                                "telugu": str(parsed["telugu"]).strip()[:1200],
+                                "engine": "gemini",
+                            }
+                    if resp.status_code not in (404, 429, 500, 502, 503, 504):
+                        break
+        except Exception:
+            pass
+        return {**fallback, "engine": "template_fallback"}
+
+    async def regenerate_draft_reply(self, db: AsyncSession, draft_id: int) -> Dict[str, Any]:
+        """Regenerates a pending review reply draft using Gemini AI while keeping human approval required."""
+        draft = (
+            await db.execute(select(ReviewReplyDraft).where(ReviewReplyDraft.id == draft_id))
+        ).scalar_one_or_none()
+        if not draft:
+            raise ValueError(f"Review draft ID {draft_id} not found.")
+        review = (
+            await db.execute(select(Review).where(Review.id == draft.review_id))
+        ).scalar_one_or_none()
+        if not review:
+            raise ValueError("Associated review record not found.")
+
+        generated = await self.generate_ai_response_draft(db, review)
+        draft.reply_english = generated["english"]
+        draft.reply_telugu = generated["telugu"]
+        await db.commit()
+        await db.refresh(draft)
+        return {
+            "id": draft.id,
+            "reply_english": draft.reply_english,
+            "reply_telugu": draft.reply_telugu,
+            "generation_engine": generated.get("engine", "template_fallback"),
+        }
 
     async def create_test_review(
         self,

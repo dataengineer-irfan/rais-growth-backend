@@ -4,12 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.models.entities import Campaign, CampaignPost, PostStatus, VerificationStatus
 from app.schemas.schemas import CampaignRead, CampaignCreate, CampaignPostRead, CampaignPostCreate, PublishCycleResponse
 from app.services.ai_content_engine import ai_content_engine
 from app.services.scheduler_service import scheduler_service
 
-router = APIRouter(prefix="/campaigns", tags=["Campaigns & Content Studio"])
+router = APIRouter(
+    prefix="/campaigns",
+    tags=["Campaigns & Content Studio"],
+    dependencies=[Depends(require_admin)],
+)
 
 @router.get("", response_model=List[CampaignRead])
 async def list_campaigns(db: AsyncSession = Depends(get_db)):

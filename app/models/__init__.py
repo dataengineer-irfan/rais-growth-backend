@@ -19,7 +19,9 @@ from app.models.entities import (
     CompetitorSnapshot,
     B2BLead,
     MediaAsset,
-    AutomationSetting
+    AutomationSetting,
+    AdminAccount,
+    AnalyticsEvent,
 )
 
 __all__ = [
@@ -43,5 +45,7 @@ __all__ = [
     "CompetitorSnapshot",
     "B2BLead",
     "MediaAsset",
-    "AutomationSetting"
+    "AutomationSetting",
+    "AdminAccount",
+    "AnalyticsEvent",
 ]

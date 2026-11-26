@@ -368,3 +368,25 @@ class MetaConnection(Base):
     token_verified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AdminAccount(Base):
+    __tablename__ = "admin_accounts"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String(100), unique=True, nullable=False, default="admin")
+    hashed_passkey = Column(String(255), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AnalyticsEvent(Base):
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    path = Column(String(255), default="/")
+    source = Column(String(80), default="Google / Direct", index=True)
+    sku = Column(String(80), nullable=True)
+    product_name = Column(String(200), nullable=True)
+    visitor_id = Column(String(120), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)

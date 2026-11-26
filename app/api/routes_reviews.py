@@ -6,11 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.models.entities import Review, ReviewReplyDraft
 from app.schemas.schemas import ReviewRead, ReviewReplyApproval
 from app.services.review_service import review_service
 
-router = APIRouter(prefix="/reviews", tags=["Reviews & Reputation Management"])
+router = APIRouter(
+    prefix="/reviews",
+    tags=["Reviews & Reputation Management"],
+    dependencies=[Depends(require_admin)],
+)
 
 class ReviewRequestPayload(BaseModel):
     customer_name: str
@@ -184,5 +189,14 @@ async def approve_and_publish_reply(draft_id: int, approval_data: ReviewReplyApp
             custom_reply_text=approval_data.reply_text,
             approver_name=approval_data.approver_name
         )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/reply/{draft_id}/regenerate")
+async def regenerate_review_reply(draft_id: int, db: AsyncSession = Depends(get_db)):
+    """Regenerates a review reply draft in English & Telugu using Gemini AI (approval still required before publish)."""
+    try:
+        return await review_service.regenerate_draft_reply(db=db, draft_id=draft_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

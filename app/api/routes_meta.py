@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes_youtube import download_drive_video_bytes
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.models.entities import YouTubeQueueItem
 from app.schemas.schemas import (
     MetaConnectRequest,
@@ -20,13 +21,13 @@ from app.services.meta_service import MetaService
 router = APIRouter(prefix="/meta", tags=["Meta Graph API (Instagram & Facebook)"])
 
 
-@router.get("/status", response_model=MetaStatusResponse)
+@router.get("/status", response_model=MetaStatusResponse, dependencies=[Depends(require_admin)])
 async def get_meta_status(db: AsyncSession = Depends(get_db)):
     """Returns genuine Meta Graph API connection status for linked Facebook Page & Instagram Business Account."""
     return await MetaService.get_status(db)
 
 
-@router.post("/connect", response_model=MetaStatusResponse)
+@router.post("/connect", response_model=MetaStatusResponse, dependencies=[Depends(require_admin)])
 async def connect_meta_account(
     payload: MetaConnectRequest, db: AsyncSession = Depends(get_db)
 ):
@@ -42,7 +43,7 @@ async def connect_meta_account(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.delete("/disconnect")
+@router.delete("/disconnect", dependencies=[Depends(require_admin)])
 async def disconnect_meta_account(db: AsyncSession = Depends(get_db)):
     """Clears stored Meta Page Access Token credentials from the local database."""
     await MetaService.disconnect(db)
@@ -81,7 +82,7 @@ async def stream_drive_video_for_meta(
     )
 
 
-@router.post("/publish-item/{item_id}")
+@router.post("/publish-item/{item_id}", dependencies=[Depends(require_admin)])
 async def publish_drive_item_to_meta(
     item_id: int,
     payload: Optional[MetaPublishRequest] = Body(default=None),
@@ -115,9 +116,9 @@ async def publish_drive_item_to_meta(
     }
 
 
-@router.get("/setup-guide")
+@router.get("/setup-guide", dependencies=[Depends(require_admin)])
 async def get_meta_setup_guide():
-    """Returns exact steps to generate a Meta Page Access Token for the linked FB Page + @raisfrozenfoods IG."""
+    """Returns exact steps to generate a Meta Page Access Token for the linked FB Page + @rais_agencies_frozen_foods IG."""
     return {
         "step_1_app": {
             "title": "Create or Open Meta Business App (developers.facebook.com)",
@@ -133,8 +134,8 @@ async def get_meta_setup_guide():
                 "Open https://developers.facebook.com/tools/explorer/.",
                 "Select your Meta App in the top-right dropdown.",
                 "Under 'User or Page', click 'Get Token' -> 'Get Page Access Token'.",
-                "Grant these 5 permissions: pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish.",
-                "Select your RAIS Agencies Facebook Page (already linked to @raisfrozenfoods Instagram)."
+                "Grant these 6 permissions: pages_show_list, pages_read_engagement, pages_manage_posts, pages_manage_engagement (for auto first comments on FB), instagram_basic, instagram_content_publish.",
+                "Select your RAIS Agencies Facebook Page (linked to @rais_agencies_frozen_foods Instagram)."
             ],
         },
         "step_3_connect": {

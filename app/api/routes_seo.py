@@ -3,13 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
+from app.core.security import require_admin
 from app.models.entities import (
     KeywordTarget, CompetitorSnapshot, BusinessProfile,
     CatalogSKU, Review, ServiceArea, VerificationStatus
 )
 from app.schemas.schemas import KeywordTargetRead, CompetitorSnapshotRead, CompetitorSnapshotCreate
 
-router = APIRouter(prefix="/seo", tags=["Local SEO & Competitor Intelligence"])
+router = APIRouter(
+    prefix="/seo",
+    tags=["Local SEO & Competitor Intelligence"],
+    dependencies=[Depends(require_admin)],
+)
 
 @router.get("/keywords", response_model=List[KeywordTargetRead])
 async def list_keywords(db: AsyncSession = Depends(get_db)):

@@ -4,7 +4,7 @@ from typing import List
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAIS Local Growth Engine"
-    VERSION: str = "1.2.0"
+    VERSION: str = "1.3.0"
     API_V1_STR: str = "/api/v1"
     
     # Database
@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "rais-super-secret-key-change-in-production-2026-annamayya"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
+    ADMIN_PASSKEY: str = "RAIS@516269"
+    CRON_SECRET: str = ""
     # AES Key for encrypting OAuth tokens at rest (32 bytes hex)
     TOKEN_ENCRYPTION_KEY: str = "4f8a92b1c3d5e7f0123456789abcdef0123456789abcdef0123456789abcdef0"
     
