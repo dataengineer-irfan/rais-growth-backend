@@ -20,7 +20,12 @@ async def list_leads(db: AsyncSession = Depends(get_db)):
 @router.post("", response_model=B2BLeadRead)
 async def create_lead(data: B2BLeadCreate, db: AsyncSession = Depends(get_db)):
     """Add a new commercial kitchen inquiry (callable from public storefront quote builder or admin CRM)."""
+    from app.services.automation_engine import automation_engine, compute_lead_score
+
     new_lead = B2BLead(**data.model_dump())
+    score, segment = compute_lead_score(new_lead)
+    new_lead.lead_score = score
+    new_lead.segment = segment
     db.add(new_lead)
     await db.commit()
     await db.refresh(new_lead)
@@ -32,6 +37,20 @@ async def create_lead(data: B2BLeadCreate, db: AsyncSession = Depends(get_db)):
         resource_id=str(new_lead.id),
         details={"business": new_lead.business_name, "phone": new_lead.phone}
     )
+    await automation_engine.trigger_event(
+        db=db,
+        trigger_type="new_lead",
+        payload={
+            "lead_id": new_lead.id,
+            "business_name": new_lead.business_name,
+            "phone": new_lead.phone,
+            "business_type": new_lead.business_type,
+            "location": new_lead.location,
+            "product_interest": new_lead.product_interest,
+        },
+        idempotency_key=f"lead-{new_lead.id}",
+    )
+    await db.refresh(new_lead)
     return new_lead
 
 @router.put("/{lead_id}", response_model=B2BLeadRead, dependencies=[Depends(require_admin)])

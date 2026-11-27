@@ -194,6 +194,7 @@ class CompetitorSnapshotCreate(BaseModel):
     rating: Optional[float] = None
     review_count: int = 0
     notes: Optional[str] = None
+    website_url: Optional[str] = None
     source: str = "Manual Field Observation"
 
 class CompetitorSnapshotRead(BaseModel):
@@ -206,6 +207,11 @@ class CompetitorSnapshotRead(BaseModel):
     verified_status: VerificationStatus
     notes: Optional[str] = None
     source: str
+    website_url: Optional[str] = None
+    public_offers: Optional[str] = None
+    last_checked_at: Optional[datetime] = None
+    change_history_json: Optional[str] = None
+    confidence: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -225,10 +231,18 @@ class B2BLeadUpdate(BaseModel):
     notes: Optional[str] = None
     contact_person: Optional[str] = None
     product_interest: Optional[str] = None
+    assigned_owner: Optional[str] = None
+    next_followup_at: Optional[datetime] = None
 
 class B2BLeadRead(B2BLeadCreate):
     id: int
     status: LeadStatus
+    assigned_owner: Optional[str] = None
+    lead_score: Optional[int] = 50
+    segment: Optional[str] = "General B2B"
+    last_interaction_at: Optional[datetime] = None
+    next_followup_at: Optional[datetime] = None
+    opted_out_whatsapp: Optional[bool] = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

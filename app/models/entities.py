@@ -38,9 +38,14 @@ class ReplyStatus(str, enum.Enum):
 
 class LeadStatus(str, enum.Enum):
     NEW = "NEW"
+    QUALIFIED = "QUALIFIED"
     CONTACTED = "CONTACTED"
+    INTERESTED = "INTERESTED"
+    QUOTATION_REQUESTED = "QUOTATION_REQUESTED"
     QUOTED = "QUOTED"
     CONVERTED = "CONVERTED"
+    NOT_INTERESTED = "NOT_INTERESTED"
+    FOLLOW_UP_REQUIRED = "FOLLOW_UP_REQUIRED"
     LOST = "LOST"
 
 class YouTubeQueueStatus(str, enum.Enum):
@@ -89,6 +94,10 @@ class CatalogSKU(Base):
     description = Column(Text, nullable=True)
     source = Column(String(100), default="RAIS Master Catalog")
     verification_status = Column(SQLEnum(VerificationStatus), default=VerificationStatus.VERIFIED)
+    selling_price = Column(Float, nullable=True)
+    price_unit = Column(String(40), nullable=True)
+    stock_quantity = Column(Integer, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class ServiceArea(Base):
     __tablename__ = "service_areas"
@@ -257,6 +266,11 @@ class CompetitorSnapshot(Base):
     verified_status = Column(SQLEnum(VerificationStatus), default=VerificationStatus.UNVERIFIED_CLAIM)
     notes = Column(Text, nullable=True)
     source = Column(String(100), default="Public Directory Observation")
+    website_url = Column(String(500), nullable=True)
+    public_offers = Column(Text, nullable=True)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    change_history_json = Column(Text, nullable=True)
+    confidence = Column(String(30), default="MANUAL")
 
 # ==================== B2B Leads ====================
 
@@ -273,7 +287,15 @@ class B2BLead(Base):
     status = Column(SQLEnum(LeadStatus), default=LeadStatus.NEW, index=True)
     lead_source = Column(String(100), default="Google Business Profile")
     notes = Column(Text, nullable=True)
+    assigned_owner = Column(String(100), default="Depot Sales Lead")
+    lead_score = Column(Integer, default=50)
+    segment = Column(String(50), default="General B2B")
+    last_interaction_at = Column(DateTime(timezone=True), nullable=True)
+    next_followup_at = Column(DateTime(timezone=True), nullable=True)
+    preferences_json = Column(Text, nullable=True)
+    opted_out_whatsapp = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 # ==================== Media Assets ====================
 
@@ -286,6 +308,13 @@ class MediaAsset(Base):
     file_path = Column(String(500), nullable=False)
     category = Column(String(100), default="Snacks")
     caption = Column(Text, nullable=True)
+    media_type = Column(String(30), default="image")  # image, video, thumbnail, brand
+    tags = Column(String(300), nullable=True)
+    sku = Column(String(50), nullable=True)
+    campaign_id = Column(Integer, nullable=True)
+    file_hash = Column(String(64), nullable=True, index=True)
+    usage_count = Column(Integer, default=0)
+    thumbnail_url = Column(String(500), nullable=True)
     is_verified_real_shop_photo = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -389,4 +418,258 @@ class AnalyticsEvent(Base):
     sku = Column(String(80), nullable=True)
     product_name = Column(String(200), nullable=True)
     visitor_id = Column(String(120), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ==================== Central Automation & Workflow Engine ====================
+
+class WorkflowExecutionStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    RETRYING = "RETRYING"
+
+
+class ReelAssetStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    SCHEDULED = "SCHEDULED"
+    PUBLISHING = "PUBLISHING"
+    PUBLISHED = "PUBLISHED"
+    FAILED = "FAILED"
+
+
+class WorkflowDefinition(Base):
+    __tablename__ = "workflow_definitions"
+
+    id = Column(Integer, primary_key=True)
+    slug = Column(String(100), unique=True, index=True, nullable=False)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    trigger_type = Column(String(60), nullable=False, index=True)
+    conditions_json = Column(Text, default="[]")
+    actions_json = Column(Text, default="[]")
+    retry_policy_json = Column(Text, default='{"max_attempts": 3, "backoff_seconds": 30}')
+    approval_required = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, index=True)
+    is_paused = Column(Boolean, default=False)
+    schedule_cron = Column(String(100), nullable=True)
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    next_run_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    executions = relationship("WorkflowExecution", back_populates="workflow", cascade="all, delete-orphan")
+
+
+class WorkflowExecution(Base):
+    __tablename__ = "workflow_executions"
+
+    id = Column(Integer, primary_key=True)
+    execution_uid = Column(String(64), unique=True, index=True, nullable=False)
+    workflow_id = Column(Integer, ForeignKey("workflow_definitions.id"), nullable=False, index=True)
+    trigger_type = Column(String(60), nullable=False)
+    status = Column(SQLEnum(WorkflowExecutionStatus), default=WorkflowExecutionStatus.PENDING, index=True)
+    idempotency_key = Column(String(150), unique=True, index=True, nullable=True)
+    lock_token = Column(String(64), nullable=True)
+    input_json = Column(Text, default="{}")
+    output_json = Column(Text, default="{}")
+    error_message = Column(Text, nullable=True)
+    attempt_count = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=3)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    workflow = relationship("WorkflowDefinition", back_populates="executions")
+    steps = relationship("WorkflowExecutionStep", back_populates="execution", cascade="all, delete-orphan")
+    approvals = relationship("AutomationApproval", back_populates="execution", cascade="all, delete-orphan")
+
+
+class WorkflowExecutionStep(Base):
+    __tablename__ = "workflow_execution_steps"
+
+    id = Column(Integer, primary_key=True)
+    execution_id = Column(Integer, ForeignKey("workflow_executions.id"), nullable=False, index=True)
+    step_index = Column(Integer, nullable=False)
+    step_name = Column(String(150), nullable=False)
+    action_type = Column(String(80), nullable=False)
+    status = Column(String(40), default="PENDING")
+    input_json = Column(Text, default="{}")
+    output_json = Column(Text, default="{}")
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    execution = relationship("WorkflowExecution", back_populates="steps")
+
+
+class AutomationApproval(Base):
+    __tablename__ = "automation_approvals"
+
+    id = Column(Integer, primary_key=True)
+    execution_id = Column(Integer, ForeignKey("workflow_executions.id"), nullable=False, index=True)
+    step_id = Column(Integer, nullable=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    payload_json = Column(Text, default="{}")
+    status = Column(String(30), default="PENDING", index=True)  # PENDING, APPROVED, REJECTED
+    reviewed_by = Column(String(100), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    decision_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    execution = relationship("WorkflowExecution", back_populates="approvals")
+
+
+# ==================== Persistent Reels Video Studio ====================
+
+class ReelsAsset(Base):
+    __tablename__ = "reels_assets"
+
+    id = Column(Integer, primary_key=True)
+    drive_file_id = Column(String(120), unique=True, index=True, nullable=True)
+    youtube_queue_item_id = Column(Integer, ForeignKey("youtube_queue_items.id"), nullable=True)
+    title = Column(String(250), nullable=False)
+    brand = Column(String(100), default="RAIS Agencies")
+    product_sku = Column(String(60), nullable=True)
+    product_name = Column(String(200), nullable=True)
+    theme = Column(String(100), default="frozen_products")
+    video_url = Column(String(500), nullable=True)
+    thumbnail_url = Column(String(500), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    resolution = Column(String(40), default="1080x1920")
+    aspect_ratio = Column(String(20), default="9:16")
+    platforms_json = Column(Text, default='["instagram", "facebook", "youtube"]')
+    caption_english = Column(Text, nullable=True)
+    caption_telugu = Column(Text, nullable=True)
+    caption_hindi = Column(Text, nullable=True)
+    hashtags = Column(String(500), nullable=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True)
+    scheduled_for = Column(DateTime(timezone=True), nullable=True, index=True)
+    status = Column(SQLEnum(ReelAssetStatus), default=ReelAssetStatus.DRAFT, index=True)
+    published_url = Column(String(500), nullable=True)
+    platform_post_id = Column(String(150), nullable=True)
+    error_history_json = Column(Text, default="[]")
+    approved_by = Column(String(100), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ==================== Google Places Lead Discovery & CRM Enquiries ====================
+
+class LeadDiscoveryResult(Base):
+    __tablename__ = "lead_discovery_results"
+
+    id = Column(Integer, primary_key=True)
+    place_id = Column(String(150), unique=True, index=True, nullable=False)
+    business_name = Column(String(200), nullable=False)
+    address = Column(String(350), nullable=True)
+    phone = Column(String(40), nullable=True)
+    website = Column(String(300), nullable=True)
+    maps_url = Column(String(500), nullable=True)
+    category = Column(String(100), default="Restaurant")
+    location_query = Column(String(120), default="Rayachoty")
+    rating = Column(Float, nullable=True)
+    user_ratings_total = Column(Integer, default=0)
+    lead_score = Column(Integer, default=50)
+    converted_lead_id = Column(Integer, ForeignKey("b2b_leads.id"), nullable=True)
+    discovered_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_refreshed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CustomerEnquiry(Base):
+    __tablename__ = "customer_enquiries"
+
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("b2b_leads.id"), nullable=True, index=True)
+    channel = Column(String(40), default="WEBSITE", index=True)  # WHATSAPP, WEBSITE, CRM, SOCIAL, MANUAL
+    customer_name = Column(String(150), nullable=False)
+    phone = Column(String(30), nullable=False, index=True)
+    product_sku = Column(String(60), nullable=True)
+    product_name = Column(String(200), nullable=True)
+    quantity_text = Column(String(120), nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String(40), default="NEW", index=True)  # NEW, QUOTED, FOLLOW_UP, CONVERTED, CLOSED
+    assigned_owner = Column(String(100), default="Depot Sales Lead")
+    prepared_response = Column(Text, nullable=True)
+    quotation_json = Column(Text, nullable=True)
+    requires_confirmation = Column(Boolean, default=True)
+    confirmed_by = Column(String(100), nullable=True)
+    linked_order_ref = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class CustomerInteraction(Base):
+    __tablename__ = "customer_interactions"
+
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("b2b_leads.id"), nullable=False, index=True)
+    channel = Column(String(40), default="CRM")
+    direction = Column(String(20), default="OUTBOUND")
+    summary = Column(Text, nullable=False)
+    created_by = Column(String(100), default="admin")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ==================== WhatsApp Business Cloud API ====================
+
+class WhatsAppConfig(Base):
+    __tablename__ = "whatsapp_configs"
+
+    id = Column(Integer, primary_key=True)
+    phone_number_id = Column(String(100), nullable=True)
+    waba_id = Column(String(100), nullable=True)
+    encrypted_access_token = Column(Text, nullable=True)
+    verify_token = Column(String(120), default="rais-wa-verify-2026")
+    is_connected = Column(Boolean, default=False)
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class WhatsAppMessage(Base):
+    __tablename__ = "whatsapp_messages"
+
+    id = Column(Integer, primary_key=True)
+    wa_message_id = Column(String(150), unique=True, index=True, nullable=True)
+    lead_id = Column(Integer, ForeignKey("b2b_leads.id"), nullable=True, index=True)
+    direction = Column(String(20), default="OUTBOUND")  # INBOUND, OUTBOUND
+    phone = Column(String(30), nullable=False, index=True)
+    message_type = Column(String(30), default="text")  # text, template
+    body = Column(Text, nullable=False)
+    template_name = Column(String(100), nullable=True)
+    status = Column(String(40), default="QUEUED")  # RECEIVED, QUEUED, SENT, DELIVERED, READ, FAILED
+    error_detail = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ==================== Monitoring & AI Provenance Logs ====================
+
+class IntegrationSyncLog(Base):
+    __tablename__ = "integration_sync_logs"
+
+    id = Column(Integer, primary_key=True)
+    integration_name = Column(String(80), nullable=False, index=True)
+    status = Column(String(40), nullable=False)  # CONNECTED, DISCONNECTED, AUTH_EXPIRED, PERMISSION_MISSING, RATE_LIMITED, UNAVAILABLE
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    checked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class AIGenerationLog(Base):
+    __tablename__ = "ai_generation_logs"
+
+    id = Column(Integer, primary_key=True)
+    task_type = Column(String(60), nullable=False, index=True)
+    provider = Column(String(50), nullable=False)  # gemini, template_engine
+    model_used = Column(String(80), nullable=True)
+    prompt_summary = Column(String(300), nullable=True)
+    output_preview = Column(Text, nullable=True)
+    fallback_used = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)

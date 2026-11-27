@@ -117,7 +117,7 @@ async def list_reviews(db: AsyncSession = Depends(get_db)):
     # Guarantee authentic Hidayathullah H review is present in the database
     has_hidayathullah = any("Hidayathullah" in (r.author_name or "") for r in reviews)
     if not has_hidayathullah:
-        from app.models.enums import SentimentType, ReviewOrigin
+        from app.models.entities import SentimentType, ReviewOrigin
         import datetime
         h_rev = Review(
             google_review_id="gmb-live-hidayathullah-00",
@@ -200,3 +200,24 @@ async def regenerate_review_reply(draft_id: int, db: AsyncSession = Depends(get_
         return await review_service.regenerate_draft_reply(db=db, draft_id=draft_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/trends")
+async def get_review_trends(db: AsyncSession = Depends(get_db)):
+    """Computes genuine review rating distribution, unanswered count, and sentiment breakdown from persisted reviews."""
+    reviews = list((await db.execute(select(Review))).scalars().all())
+    total = len(reviews)
+    avg_rating = round(sum(r.rating for r in reviews) / total, 2) if total else None
+    unanswered = sum(1 for r in reviews if not r.has_replied)
+    by_sentiment = {
+        "POSITIVE": sum(1 for r in reviews if r.sentiment.value == "POSITIVE"),
+        "NEUTRAL": sum(1 for r in reviews if r.sentiment.value == "NEUTRAL"),
+        "NEGATIVE": sum(1 for r in reviews if r.sentiment.value == "NEGATIVE"),
+    }
+    return {
+        "total_reviews": total,
+        "average_rating": avg_rating,
+        "unanswered_count": unanswered,
+        "complaints_count": sum(1 for r in reviews if r.is_complaint),
+        "by_sentiment": by_sentiment,
+    }

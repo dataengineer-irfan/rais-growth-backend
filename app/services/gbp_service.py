@@ -227,7 +227,8 @@ class GBPService:
         if include_youtube:
             scopes.extend([
                 "https://www.googleapis.com/auth/drive.readonly",
-                "https://www.googleapis.com/auth/youtube.upload"
+                "https://www.googleapis.com/auth/youtube.upload",
+                "https://www.googleapis.com/auth/youtube.readonly",
             ])
 
         params = {
@@ -693,13 +694,19 @@ class GBPService:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json"
             }
+            raw_cta = str(post_data.get("call_to_action") or "ORDER").upper()
+            cta_url = post_data.get("cta_url", f"https://wa.me/91{settings.VERIFIED_PHONE}")
+            if raw_cta in ("CALL", "CALL_NOW"):
+                # GBP v4 forbids URL on actionType=CALL; map WhatsApp CTA to ORDER or pure CALL
+                cta_obj = {"actionType": "ORDER", "url": cta_url} if cta_url and "wa.me" in cta_url else {"actionType": "CALL"}
+            else:
+                valid_ctas = {"BOOK", "ORDER", "SHOP", "LEARN_MORE", "SIGN_UP"}
+                cta_type = raw_cta if raw_cta in valid_ctas else "LEARN_MORE"
+                cta_obj = {"actionType": cta_type, "url": cta_url}
             body = {
                 "languageCode": "en-IN",
                 "summary": post_data.get("summary"),
-                "callToAction": {
-                    "actionType": post_data.get("call_to_action", "CALL"),
-                    "url": post_data.get("cta_url", f"https://wa.me/91{settings.VERIFIED_PHONE}")
-                },
+                "callToAction": cta_obj,
                 "topicType": "STANDARD"
             }
             async with httpx.AsyncClient(timeout=15.0) as client:

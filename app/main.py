@@ -18,15 +18,25 @@ from app.api.routes_meta import router as meta_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_media import router as media_router
 from app.api.routes_analytics import router as analytics_router
+from app.api.routes_workflows import router as workflows_router
+from app.api.routes_reels import router as reels_router
+from app.api.routes_whatsapp import router as whatsapp_router
+from app.api.routes_discovery import router as discovery_router
+from app.api.routes_crm import router as crm_router
+from app.api.routes_ai import router as ai_router
+from app.api.routes_integrations import router as integrations_router
 
 
 async def _drive_autopilot_loop():
-    """Hands-free watcher: every 3 minutes scans Drive for new videos and auto-publishes YT + IG + FB + First Comments."""
+    """Hands-free watcher: every 3 minutes scans Drive & executes due durable scheduled workflows."""
+    from app.services.automation_engine import automation_engine
+
     while True:
         try:
             await asyncio.sleep(180)
             async with AsyncSessionLocal() as session:
                 await _run_autopilot_locked(session)
+                await automation_engine.run_due_scheduled_workflows(session)
         except asyncio.CancelledError:
             break
         except Exception:
@@ -35,10 +45,15 @@ async def _drive_autopilot_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize DB and Seed Data
+    from app.services.automation_engine import automation_engine
+
+    # Startup: Initialize DB, Seed Data & Recover Interrupted Workflows
     await init_db()
     async with AsyncSessionLocal() as session:
         await seed_initial_data(session)
+        await automation_engine.ensure_default_workflows(session)
+        await automation_engine.recover_stale_executions(session)
+        await automation_engine.run_due_scheduled_workflows(session)
     autopilot_task = asyncio.create_task(_drive_autopilot_loop())
     try:
         yield
@@ -82,6 +97,13 @@ app.include_router(youtube_router, prefix=settings.API_V1_STR)
 app.include_router(meta_router, prefix=settings.API_V1_STR)
 app.include_router(media_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(workflows_router, prefix=settings.API_V1_STR)
+app.include_router(reels_router, prefix=settings.API_V1_STR)
+app.include_router(whatsapp_router, prefix=settings.API_V1_STR)
+app.include_router(discovery_router, prefix=settings.API_V1_STR)
+app.include_router(crm_router, prefix=settings.API_V1_STR)
+app.include_router(ai_router, prefix=settings.API_V1_STR)
+app.include_router(integrations_router, prefix=settings.API_V1_STR)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

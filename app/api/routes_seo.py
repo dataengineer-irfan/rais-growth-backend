@@ -62,6 +62,7 @@ async def create_competitor(payload: CompetitorSnapshotCreate, db: AsyncSession 
         review_count=payload.review_count,
         verified_status=VerificationStatus.UNVERIFIED_CLAIM,
         notes=payload.notes,
+        website_url=payload.website_url.strip() if payload.website_url else None,
         source=payload.source
     )
     db.add(comp)
@@ -224,6 +225,112 @@ async def seed_google_qna():
     """Seeds and validates Google Maps Q&A knowledge graph entries."""
     return {
         "status": "SUCCESS",
-        "message": "5 High-Intent B2B Q&As active and synchronized with Schema.org FAQPage.",
+        "message": "5 High-Intent B2B Q&As active and synchronized with Schema.org FAQPage (Website Schema only — not published to Google Maps Q&A API).",
         "seeded_count": len(SEEDED_QNA)
     }
+
+
+@router.post("/competitors/{comp_id}/check")
+async def check_competitor_public_site(comp_id: int, db: AsyncSession = Depends(get_db)):
+    """Performs an on-demand public HTTP check of a competitor's public website and logs any title/offer changes."""
+    import json
+    import re
+    from datetime import datetime, timezone
+    import httpx
+
+    comp = (await db.execute(select(CompetitorSnapshot).where(CompetitorSnapshot.id == comp_id))).scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    if not comp.website_url:
+        raise HTTPException(status_code=400, detail="Competitor has no public website_url configured to check.")
+
+    now = datetime.now(timezone.utc)
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            resp = await client.get(comp.website_url, headers={"User-Agent": "RAIS-Growth-Monitor/1.0"})
+        title_match = re.search(r"<title>(.*?)</title>", resp.text, re.IGNORECASE | re.DOTALL)
+        page_title = title_match.group(1).strip()[:200] if title_match else f"HTTP {resp.status_code}"
+        history = json.loads(comp.change_history_json or "[]")
+        if comp.public_offers != page_title:
+            history.append({"checked_at": now.isoformat(), "observed": page_title})
+            comp.public_offers = page_title
+            comp.change_history_json = json.dumps(history[-15:])
+        comp.last_checked_at = now
+        comp.confidence = "PUBLIC_HTTP_VERIFIED"
+        comp.source = "Public Website HTTP Check"
+        await db.commit()
+        return {
+            "id": comp.id,
+            "status": "CHECKED",
+            "observed_title": page_title,
+            "last_checked_at": now.isoformat(),
+            "confidence": comp.confidence,
+        }
+    except Exception as exc:
+        comp.last_checked_at = now
+        await db.commit()
+        raise HTTPException(status_code=502, detail=f"Public website check failed: {exc}")
+
+
+@router.get("/search-console")
+async def get_search_console_data(days: int = 28, db: AsyncSession = Depends(get_db)):
+    """Fetches real Google Search Console query performance when OAuth webmasters.readonly scope is granted."""
+    import urllib.parse
+    from datetime import datetime, timedelta, timezone
+    import httpx
+    from app.core.config import settings
+    from app.services.gbp_service import gbp_service
+
+    st = await gbp_service.get_connection_status(db)
+    if not st.get("connected"):
+        return {
+            "status": "NOT_CONNECTED",
+            "site_url": settings.GSC_SITE_URL,
+            "rows": [],
+            "message": "Google OAuth is not connected.",
+        }
+    scopes = " ".join(st.get("scopes_granted") or [])
+    if "webmasters" not in scopes:
+        return {
+            "status": "PERMISSION_MISSING",
+            "site_url": settings.GSC_SITE_URL,
+            "rows": [],
+            "message": "Google Search Console scope (webmasters.readonly) not granted in current OAuth token.",
+        }
+
+    token = await gbp_service.get_valid_access_token(db)
+    end_dt = datetime.now(timezone.utc).date()
+    start_dt = end_dt - timedelta(days=max(1, min(days, 90)))
+    encoded_site = urllib.parse.quote(settings.GSC_SITE_URL, safe="")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://www.googleapis.com/webmasters/v3/sites/{encoded_site}/searchAnalytics/query",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "startDate": start_dt.isoformat(),
+                    "endDate": end_dt.isoformat(),
+                    "dimensions": ["query"],
+                    "rowLimit": 25,
+                },
+            )
+        if resp.status_code != 200:
+            return {
+                "status": "API_ERROR",
+                "site_url": settings.GSC_SITE_URL,
+                "rows": [],
+                "message": f"Search Console API {resp.status_code}: {resp.text[:200]}",
+            }
+        data = resp.json()
+        return {
+            "status": "LIVE_DATA_AVAILABLE",
+            "site_url": settings.GSC_SITE_URL,
+            "rows": data.get("rows") or [],
+        }
+    except Exception as exc:
+        return {
+            "status": "API_ERROR",
+            "site_url": settings.GSC_SITE_URL,
+            "rows": [],
+            "message": str(exc),
+        }

@@ -4,7 +4,7 @@ from typing import List
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAIS Local Growth Engine"
-    VERSION: str = "1.3.0"
+    VERSION: str = "2.0.0"
     API_V1_STR: str = "/api/v1"
     
     # Database
@@ -34,11 +34,23 @@ class Settings(BaseSettings):
     META_PAGE_ACCESS_TOKEN: str = ""
     META_PAGE_ID: str = ""
     META_IG_USER_ID: str = ""
+    META_APP_SECRET: str = ""
     BACKEND_PUBLIC_URL: str = "https://rais-growth-backend.onrender.com"
     
     # LLM Settings (Provider Independent: mock, ollama, gemini, openai)
     LLM_PROVIDER: str = "template_engine"  # template_engine, gemini, ollama, openai
     GEMINI_API_KEY: str = ""
+
+    # Google Places, Analytics & Search Console
+    GOOGLE_PLACES_API_KEY: str = ""
+    GA4_PROPERTY_ID: str = ""
+    GSC_SITE_URL: str = "https://dataengineer-irfan.github.io/RAIS-AGENCIES/"
+
+    # WhatsApp Business Cloud API (Meta Graph v21.0)
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_WABA_ID: str = ""
+    WHATSAPP_VERIFY_TOKEN: str = "rais-wa-verify-2026"
     
     # CORS
     CORS_ORIGINS: List[str] = [

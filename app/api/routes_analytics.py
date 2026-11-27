@@ -236,6 +236,7 @@ async def get_live_social_performance(db: AsyncSession = Depends(get_db)):
 
     return {
         "source": "YouTube Data API v3 & Meta Graph API v21.0",
+        "synced_at": datetime.now(timezone.utc).isoformat(),
         "yt_telemetry_note": yt_note,
         "summary": {
             "published_videos": len(video_metrics),
@@ -246,3 +247,89 @@ async def get_live_social_performance(db: AsyncSession = Depends(get_db)):
         },
         "videos": video_metrics,
     }
+
+
+@router.get("/ga4", dependencies=[Depends(require_admin)])
+async def get_ga4_analytics(days: int = 30, db: AsyncSession = Depends(get_db)):
+    """
+    Fetches Google Analytics 4 Data API v1beta metrics when GA4_PROPERTY_ID and OAuth analytics scope are configured.
+    Never invents or zeroes missing data.
+    """
+    from app.core.config import settings
+
+    prop_id = (settings.GA4_PROPERTY_ID or "").strip()
+    if not prop_id:
+        return {
+            "status": "NOT_CONFIGURED",
+            "source": "Google Analytics Data API v1beta",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": None,
+            "message": "GA4_PROPERTY_ID is not configured on backend.",
+        }
+
+    st = await gbp_service.get_connection_status(db)
+    if not st.get("connected"):
+        return {
+            "status": "NOT_CONNECTED",
+            "source": "Google Analytics Data API v1beta",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": None,
+            "message": "Google OAuth connection is not active.",
+        }
+
+    scopes = " ".join(st.get("scopes_granted") or [])
+    if "analytics" not in scopes:
+        return {
+            "status": "PERMISSION_MISSING",
+            "source": "Google Analytics Data API v1beta",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": None,
+            "message": "OAuth scope analytics.readonly is not granted for GA4 Data API.",
+        }
+
+    token = await gbp_service.get_valid_access_token(db)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://analyticsdata.googleapis.com/v1beta/properties/{prop_id}:runReport",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "dateRanges": [{"startDate": f"{max(1, min(days, 365))}daysAgo", "endDate": "today"}],
+                    "metrics": [
+                        {"name": "sessions"},
+                        {"name": "totalUsers"},
+                        {"name": "screenPageViews"},
+                        {"name": "conversions"},
+                    ],
+                },
+            )
+        if resp.status_code != 200:
+            return {
+                "status": "API_ERROR",
+                "source": "Google Analytics Data API v1beta",
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "metrics": None,
+                "message": f"GA4 API returned HTTP {resp.status_code}: {resp.text[:200]}",
+            }
+        rows = resp.json().get("rows") or []
+        vals = rows[0].get("metricValues", []) if rows else []
+        metrics = {
+            "sessions": int(vals[0]["value"]) if len(vals) > 0 else 0,
+            "users": int(vals[1]["value"]) if len(vals) > 1 else 0,
+            "page_views": int(vals[2]["value"]) if len(vals) > 2 else 0,
+            "conversions": int(vals[3]["value"]) if len(vals) > 3 else 0,
+        }
+        return {
+            "status": "LIVE_DATA_AVAILABLE",
+            "source": "Google Analytics Data API v1beta",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": metrics,
+        }
+    except Exception as exc:
+        return {
+            "status": "API_ERROR",
+            "source": "Google Analytics Data API v1beta",
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": None,
+            "message": str(exc),
+        }

@@ -130,7 +130,103 @@ async def init_db():
                         ]:
                             if col_name not in ys_cols:
                                 sync_conn.execute(text(f"ALTER TABLE youtube_drive_settings ADD COLUMN {col_name} {col_type}"))
+
+                    # 5. Additive columns for CRM, Catalog, Competitors & Media
+                    additive_sqlite = {
+                        "catalog_skus": [
+                            ("selling_price", "FLOAT"),
+                            ("price_unit", "VARCHAR(40)"),
+                            ("stock_quantity", "INTEGER"),
+                            ("updated_at", "DATETIME"),
+                        ],
+                        "competitor_snapshots": [
+                            ("website_url", "VARCHAR(500)"),
+                            ("public_offers", "TEXT"),
+                            ("last_checked_at", "DATETIME"),
+                            ("change_history_json", "TEXT"),
+                            ("confidence", "VARCHAR(30) DEFAULT 'MANUAL'"),
+                        ],
+                        "b2b_leads": [
+                            ("assigned_owner", "VARCHAR(100) DEFAULT 'Depot Sales Lead'"),
+                            ("lead_score", "INTEGER DEFAULT 50"),
+                            ("segment", "VARCHAR(50) DEFAULT 'General B2B'"),
+                            ("last_interaction_at", "DATETIME"),
+                            ("next_followup_at", "DATETIME"),
+                            ("preferences_json", "TEXT"),
+                            ("opted_out_whatsapp", "BOOLEAN DEFAULT 0"),
+                            ("updated_at", "DATETIME"),
+                        ],
+                        "media_assets": [
+                            ("media_type", "VARCHAR(30) DEFAULT 'image'"),
+                            ("tags", "VARCHAR(300)"),
+                            ("sku", "VARCHAR(50)"),
+                            ("campaign_id", "INTEGER"),
+                            ("file_hash", "VARCHAR(64)"),
+                            ("usage_count", "INTEGER DEFAULT 0"),
+                            ("thumbnail_url", "VARCHAR(500)"),
+                        ],
+                    }
+                    for tbl, cols in additive_sqlite.items():
+                        res_t = sync_conn.execute(text(f"PRAGMA table_info({tbl})"))
+                        existing_t = [row[1] for row in res_t.fetchall()]
+                        if existing_t:
+                            for col_name, col_type in cols:
+                                if col_name not in existing_t:
+                                    sync_conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type}"))
                 except Exception:
                     pass
 
             await conn.run_sync(migrate_sqlite_schema)
+        else:
+            def migrate_postgres_schema(sync_conn):
+                pg_alters = [
+                    "ALTER TABLE catalog_skus ADD COLUMN IF NOT EXISTS selling_price DOUBLE PRECISION",
+                    "ALTER TABLE catalog_skus ADD COLUMN IF NOT EXISTS price_unit VARCHAR(40)",
+                    "ALTER TABLE catalog_skus ADD COLUMN IF NOT EXISTS stock_quantity INTEGER",
+                    "ALTER TABLE catalog_skus ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
+                    "ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS website_url VARCHAR(500)",
+                    "ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS public_offers TEXT",
+                    "ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ",
+                    "ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS change_history_json TEXT",
+                    "ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS confidence VARCHAR(30) DEFAULT 'MANUAL'",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS assigned_owner VARCHAR(100) DEFAULT 'Depot Sales Lead'",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS lead_score INTEGER DEFAULT 50",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS segment VARCHAR(50) DEFAULT 'General B2B'",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS last_interaction_at TIMESTAMPTZ",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS next_followup_at TIMESTAMPTZ",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS preferences_json TEXT",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS opted_out_whatsapp BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE b2b_leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS media_type VARCHAR(30) DEFAULT 'image'",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS tags VARCHAR(300)",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS sku VARCHAR(50)",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS campaign_id INTEGER",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64)",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0",
+                    "ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS thumbnail_url VARCHAR(500)",
+                    "CREATE INDEX IF NOT EXISTS ix_media_assets_file_hash ON media_assets (file_hash)",
+                ]
+                for stmt in pg_alters:
+                    try:
+                        sync_conn.execute(text(stmt))
+                    except Exception as exc:
+                        print(f"[DB MIGRATION WARNING] {stmt}: {exc}")
+
+            await conn.run_sync(migrate_postgres_schema)
+
+    if not _db_url.startswith("sqlite"):
+        async with engine.connect() as ac_conn:
+            ac_conn = await ac_conn.execution_options(isolation_level="AUTOCOMMIT")
+            for enum_val in (
+                "QUALIFIED",
+                "INTERESTED",
+                "QUOTATION_REQUESTED",
+                "NOT_INTERESTED",
+                "FOLLOW_UP_REQUIRED",
+            ):
+                try:
+                    await ac_conn.execute(
+                        text(f"ALTER TYPE leadstatus ADD VALUE IF NOT EXISTS '{enum_val}'")
+                    )
+                except Exception as exc:
+                    print(f"[DB MIGRATION WARNING] enum leadstatus add {enum_val}: {exc}")
